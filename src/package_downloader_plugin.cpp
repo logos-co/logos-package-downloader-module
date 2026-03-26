@@ -3,7 +3,6 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonArray>
-#include <QJsonObject>
 #include "logos_api_client.h"
 
 PackageDownloaderPlugin::PackageDownloaderPlugin()
@@ -22,16 +21,16 @@ PackageDownloaderPlugin::~PackageDownloaderPlugin()
     }
 }
 
-QJsonArray PackageDownloaderPlugin::getPackages()
+QVariantList PackageDownloaderPlugin::getPackages()
 {
     std::string json = m_lib->getPackages();
-    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array();
+    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array().toVariantList();
 }
 
-QJsonArray PackageDownloaderPlugin::getPackages(const QString& category)
+QVariantList PackageDownloaderPlugin::getPackages(const QString& category)
 {
     std::string json = m_lib->getPackages(category.toStdString());
-    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array();
+    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array().toVariantList();
 }
 
 QStringList PackageDownloaderPlugin::getCategories()
@@ -66,13 +65,13 @@ void PackageDownloaderPlugin::setRelease(const QString& releaseTag)
     m_lib->setRelease(releaseTag.toStdString());
 }
 
-QJsonObject PackageDownloaderPlugin::downloadPackage(const QString& packageName)
+QVariantMap PackageDownloaderPlugin::downloadPackage(const QString& packageName)
 {
     qDebug() << "Downloading package:" << packageName;
 
     std::string filePath = m_lib->downloadPackage(packageName.toStdString());
 
-    QJsonObject result;
+    QVariantMap result;
     result["name"] = packageName;
     if (filePath.empty()) {
         result["error"] = QStringLiteral("Failed to download package");
@@ -82,7 +81,7 @@ QJsonObject PackageDownloaderPlugin::downloadPackage(const QString& packageName)
     return result;
 }
 
-QJsonArray PackageDownloaderPlugin::downloadPackages(const QStringList& packageNames)
+QVariantList PackageDownloaderPlugin::downloadPackages(const QStringList& packageNames)
 {
     qDebug() << "Downloading packages:" << packageNames;
 
@@ -98,9 +97,9 @@ QJsonArray PackageDownloaderPlugin::downloadPackages(const QStringList& packageN
     std::string resolvedJson = m_lib->resolveDependencies(names);
     QJsonArray resolvedArr = QJsonDocument::fromJson(QByteArray::fromStdString(resolvedJson)).array();
 
-    QJsonArray results;
+    QVariantList results;
     for (const auto& val : resolvedArr) {
-        results.append(downloadPackage(val.toString()));
+        results.append(QVariant::fromValue(downloadPackage(val.toString())));
     }
     return results;
 }

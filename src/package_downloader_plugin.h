@@ -1,8 +1,8 @@
 #pragma once
 
 #include <QtCore/QObject>
-#include <QJsonArray>
-#include <QJsonObject>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QStringList>
 #include "package_downloader_interface.h"
 #include "logos_api.h"
@@ -25,8 +25,8 @@ public:
     QString version() const override { return "1.0.0"; }
 
     // Package catalog
-    Q_INVOKABLE QJsonArray getPackages();
-    Q_INVOKABLE QJsonArray getPackages(const QString& category);
+    Q_INVOKABLE QVariantList getPackages();
+    Q_INVOKABLE QVariantList getPackages(const QString& category);
     Q_INVOKABLE QStringList getCategories();
     Q_INVOKABLE QStringList resolveDependencies(const QStringList& packageNames);
 
@@ -35,9 +35,9 @@ public:
 
     // Download (blocking — logos core auto-generates async wrappers)
     // Returns: { "name": "...", "path": "...", "error": "..." }
-    Q_INVOKABLE QJsonObject downloadPackage(const QString& packageName);
+    Q_INVOKABLE QVariantMap downloadPackage(const QString& packageName);
     // Returns: [ { "name": "...", "path": "...", "error": "..." }, ... ]
-    Q_INVOKABLE QJsonArray downloadPackages(const QStringList& packageNames);
+    Q_INVOKABLE QVariantList downloadPackages(const QStringList& packageNames);
 
     // LogosAPI
     Q_INVOKABLE void initLogos(LogosAPI* logosAPIInstance);
