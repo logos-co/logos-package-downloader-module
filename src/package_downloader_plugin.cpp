@@ -21,21 +21,21 @@ PackageDownloaderPlugin::~PackageDownloaderPlugin()
     }
 }
 
-QVariantList PackageDownloaderPlugin::getPackages()
+QVariantList PackageDownloaderPlugin::getPackages(const QString& releaseTag)
 {
-    std::string json = m_lib->getPackages();
+    std::string json = m_lib->getPackages(releaseTag.toStdString());
     return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array().toVariantList();
 }
 
-QVariantList PackageDownloaderPlugin::getPackages(const QString& category)
+QVariantList PackageDownloaderPlugin::getPackages(const QString& releaseTag, const QString& category)
 {
-    std::string json = m_lib->getPackages(category.toStdString());
+    std::string json = m_lib->getPackages(releaseTag.toStdString(), category.toStdString());
     return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array().toVariantList();
 }
 
-QStringList PackageDownloaderPlugin::getCategories()
+QStringList PackageDownloaderPlugin::getCategories(const QString& releaseTag)
 {
-    std::string json = m_lib->getCategories();
+    std::string json = m_lib->getCategories(releaseTag.toStdString());
     QJsonArray arr = QJsonDocument::fromJson(QByteArray::fromStdString(json)).array();
     QStringList result;
     for (const auto& val : arr) {
@@ -44,14 +44,14 @@ QStringList PackageDownloaderPlugin::getCategories()
     return result;
 }
 
-QStringList PackageDownloaderPlugin::resolveDependencies(const QStringList& packageNames)
+QStringList PackageDownloaderPlugin::resolveDependencies(const QString& releaseTag, const QStringList& packageNames)
 {
     std::vector<std::string> names;
     for (const auto& name : packageNames) {
         names.push_back(name.toStdString());
     }
 
-    std::string json = m_lib->resolveDependencies(names);
+    std::string json = m_lib->resolveDependencies(releaseTag.toStdString(), names);
     QJsonArray arr = QJsonDocument::fromJson(QByteArray::fromStdString(json)).array();
     QStringList result;
     for (const auto& val : arr) {
@@ -60,16 +60,17 @@ QStringList PackageDownloaderPlugin::resolveDependencies(const QStringList& pack
     return result;
 }
 
-void PackageDownloaderPlugin::setRelease(const QString& releaseTag)
+QVariantList PackageDownloaderPlugin::getReleases()
 {
-    m_lib->setRelease(releaseTag.toStdString());
+    std::string json = m_lib->getReleases();
+    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).array().toVariantList();
 }
 
-QVariantMap PackageDownloaderPlugin::downloadPackage(const QString& packageName)
+QVariantMap PackageDownloaderPlugin::downloadPackage(const QString& releaseTag, const QString& packageName)
 {
-    qDebug() << "Downloading package:" << packageName;
+    qDebug() << "Downloading package:" << packageName << "from release:" << releaseTag;
 
-    std::string filePath = m_lib->downloadPackage(packageName.toStdString());
+    std::string filePath = m_lib->downloadPackage(releaseTag.toStdString(), packageName.toStdString());
 
     QVariantMap result;
     result["name"] = packageName;
@@ -81,9 +82,9 @@ QVariantMap PackageDownloaderPlugin::downloadPackage(const QString& packageName)
     return result;
 }
 
-QVariantList PackageDownloaderPlugin::downloadPackages(const QStringList& packageNames)
+QVariantList PackageDownloaderPlugin::downloadPackages(const QString& releaseTag, const QStringList& packageNames)
 {
-    qDebug() << "Downloading packages:" << packageNames;
+    qDebug() << "Downloading packages:" << packageNames << "from release:" << releaseTag;
 
     if (packageNames.isEmpty()) {
         return {};
@@ -94,12 +95,12 @@ QVariantList PackageDownloaderPlugin::downloadPackages(const QStringList& packag
     for (const auto& name : packageNames) {
         names.push_back(name.toStdString());
     }
-    std::string resolvedJson = m_lib->resolveDependencies(names);
+    std::string resolvedJson = m_lib->resolveDependencies(releaseTag.toStdString(), names);
     QJsonArray resolvedArr = QJsonDocument::fromJson(QByteArray::fromStdString(resolvedJson)).array();
 
     QVariantList results;
     for (const auto& val : resolvedArr) {
-        results.append(QVariant::fromValue(downloadPackage(val.toString())));
+        results.append(QVariant::fromValue(downloadPackage(releaseTag, val.toString())));
     }
     return results;
 }
