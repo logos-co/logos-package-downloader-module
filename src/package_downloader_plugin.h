@@ -25,19 +25,21 @@ public:
     QString version() const override { return "1.0.0"; }
 
     // Package catalog
-    Q_INVOKABLE QVariantList getPackages();
-    Q_INVOKABLE QVariantList getPackages(const QString& category);
-    Q_INVOKABLE QStringList getCategories();
-    Q_INVOKABLE QStringList resolveDependencies(const QStringList& packageNames);
+    // releaseTag: GitHub release tag; empty string resolves to "latest"
+    Q_INVOKABLE QVariantList getPackages(const QString& releaseTag);
+    Q_INVOKABLE QVariantList getPackages(const QString& releaseTag, const QString& category);
+    Q_INVOKABLE QStringList getCategories(const QString& releaseTag);
+    Q_INVOKABLE QStringList resolveDependencies(const QString& releaseTag, const QStringList& packageNames);
 
-    // Configuration
-    Q_INVOKABLE void setRelease(const QString& releaseTag);
+    // GitHub releases (returns top 30 most recent, each entry is a QVariantMap
+    // with keys: tag_name, name, published_at, prerelease, html_url)
+    Q_INVOKABLE QVariantList getReleases();
 
     // Download (blocking — logos core auto-generates async wrappers)
     // Returns: { "name": "...", "path": "...", "error": "..." }
-    Q_INVOKABLE QVariantMap downloadPackage(const QString& packageName);
+    Q_INVOKABLE QVariantMap downloadPackage(const QString& releaseTag, const QString& packageName);
     // Returns: [ { "name": "...", "path": "...", "error": "..." }, ... ]
-    Q_INVOKABLE QVariantList downloadPackages(const QStringList& packageNames);
+    Q_INVOKABLE QVariantList downloadPackages(const QString& releaseTag, const QStringList& packageNames);
 
     // LogosAPI
     Q_INVOKABLE void initLogos(LogosAPI* logosAPIInstance);
