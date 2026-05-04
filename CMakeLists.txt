@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(PackageDownloaderModulePlugin LANGUAGES CXX)
+project(LogosPackageDownloaderModulePlugin LANGUAGES CXX)
 
 # Include the Logos Module CMake helper
 if(DEFINED ENV{LOGOS_MODULE_BUILDER_ROOT})
@@ -8,15 +8,12 @@ else()
     message(FATAL_ERROR "LogosModule.cmake not found. Set LOGOS_MODULE_BUILDER_ROOT.")
 endif()
 
-# Define the module
+# Universal module — generated_code/ is picked up automatically by LogosModule.cmake
 logos_module(
     NAME package_downloader
     SOURCES
-        src/package_downloader_interface.h
-        src/package_downloader_plugin.h
-        src/package_downloader_plugin.cpp
+        src/package_downloader_impl.h
+        src/package_downloader_impl.cpp
     EXTERNAL_LIBS
         package_downloader_lib
-    INCLUDE_DIRS
-        lib
 )

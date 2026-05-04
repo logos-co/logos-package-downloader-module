@@ -4,6 +4,7 @@
     "description": "Online package catalog and download service",
     "author": "Logos Core Team",
     "type": "core",
+    "interface": "universal",
     "category": "management",
     "main": "package_downloader_plugin",
     "dependencies": [],
