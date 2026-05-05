@@ -1,20 +1,26 @@
 {
-  "name": "package_downloader",
-  "version": "1.0.0",
-  "description": "Online package catalog and download service",
-  "author": "Logos Core Team",
-  "type": "core",
-  "category": "management",
-  "main": "package_downloader_plugin",
-  "dependencies": [],
-  "build": {
-    "type": "cmake",
-    "files": [
-      "package_downloader_plugin.cpp",
-      "package_downloader_plugin.h"
-    ]
-  },
-  "capabilities": [
-    "package_download"
-  ]
+    "name": "package_downloader",
+    "version": "1.0.0",
+    "description": "Online package catalog and download service",
+    "author": "Logos Core Team",
+    "type": "core",
+    "interface": "universal",
+    "category": "management",
+    "main": "package_downloader_plugin",
+    "dependencies": [],
+    "include": [
+        "libpackage_downloader_lib.so",
+        "libpackage_downloader_lib.dylib"
+    ],
+    "capabilities": [
+        "package_download"
+    ],
+    "nix": {
+        "external_libraries": [
+            { "name": "package_downloader", "build_command": "true" }
+        ],
+        "cmake": {
+            "extra_include_dirs": ["lib"]
+        }
+    }
 }
