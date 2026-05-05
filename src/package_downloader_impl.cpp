@@ -69,6 +69,20 @@ LogosList PackageDownloaderImpl::downloadPackages(const std::string& releaseTag,
     for (const auto& val : resolved) {
         if (val.is_string()) {
             results.push_back(downloadPackage(releaseTag, val.get<std::string>()));
+        } else {
+            // resolveDependencies is contracted to return a JSON array of
+            // package-name strings. Anything else is a contract violation
+            // (lib bug, schema drift, embedded error object). Surface it as
+            // an error entry rather than silently dropping it — the old
+            // Qt plugin called .toString() on every entry which produced a
+            // "Failed to download package" entry with empty name for
+            // non-string values; this preserves the "one result per
+            // resolved entry" shape callers rely on while making the
+            // diagnostic actionable.
+            LogosMap entry = LogosMap::object();
+            entry["name"]  = "";
+            entry["error"] = "Unexpected non-string entry in resolveDependencies result: " + val.dump();
+            results.push_back(entry);
         }
     }
     return results;
