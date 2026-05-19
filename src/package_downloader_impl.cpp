@@ -145,13 +145,66 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
 LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson) {
     // Same exception fence as downloadPackages — see comment there.
     LogosList results = LogosList::array();
+
+    // Extract the requested top-level names up front so a failure that
+    // throws *before* resolveDependenciesJson emits any per-entry output
+    // can still be attributed to the package(s) the caller asked for.
+    // Without this the catch-all below produces a nameless `{ "error" }`
+    // row; the UI keys install/Failed badges by package name, so a
+    // nameless row silently no-ops the model update and the row reverts
+    // to "Not Installed" with no error surfaced (observed with
+    // wallet_module against an older index that trips a type_error in
+    // the resolver). The manifest dependency shape is either
+    // `["name", ...]` or `[{ "name": "...", ... }, ...]`; anything else
+    // is tolerated and simply yields no names (falls back to the
+    // historical nameless error row).
+    std::vector<std::string> requestedNames;
+    try {
+        LogosList deps = LogosList::parse(dependenciesJson);
+        if (deps.is_array()) {
+            for (const auto& d : deps) {
+                if (d.is_string()) {
+                    requestedNames.push_back(d.get<std::string>());
+                } else if (d.is_object()) {
+                    std::string n = d.value("name", "");
+                    if (!n.empty()) requestedNames.push_back(std::move(n));
+                }
+            }
+        }
+    } catch (...) {
+        // Best-effort attribution only; leave requestedNames empty.
+    }
+
+    auto pushError = [&](const std::string& msg) {
+        if (requestedNames.empty()) {
+            LogosMap e = LogosMap::object();
+            e["error"] = msg;
+            results.push_back(e);
+            return;
+        }
+        // One error row per requested package so every UI row that was
+        // marked "Installing" gets a matching Failed update by name.
+        for (const auto& n : requestedNames) {
+            LogosMap e = LogosMap::object();
+            e["name"]  = n;
+            e["error"] = msg;
+            results.push_back(e);
+        }
+    };
+
     try {
         LogosList resolved = LogosList::parse(m_lib->resolveDependenciesJson(dependenciesJson));
         for (const auto& entry : resolved) {
             if (!entry.is_object()) continue;
             if (entry.contains("error")) {
                 LogosMap e = LogosMap::object();
-                e["name"]  = entry.value("name", "");
+                // Prefer the resolver's own name; if it didn't attribute
+                // the failure and the caller asked for exactly one
+                // package, attribute it to that so the UI can react.
+                std::string errName = entry.value("name", "");
+                if (errName.empty() && requestedNames.size() == 1)
+                    errName = requestedNames.front();
+                e["name"]  = errName;
                 e["error"] = entry.value("error", "");
                 results.push_back(e);
                 break;
@@ -163,13 +216,9 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
             results.push_back(pinnedDownload(m_lib, repoUrl, name, version, rootHash));
         }
     } catch (const std::exception& ex) {
-        LogosMap e = LogosMap::object();
-        e["error"] = std::string("downloader exception: ") + ex.what();
-        results.push_back(e);
+        pushError(std::string("downloader exception: ") + ex.what());
     } catch (...) {
-        LogosMap e = LogosMap::object();
-        e["error"] = std::string("downloader exception: unknown");
-        results.push_back(e);
+        pushError("downloader exception: unknown");
     }
     return results;
 }
