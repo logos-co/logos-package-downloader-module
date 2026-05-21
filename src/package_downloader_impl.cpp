@@ -222,3 +222,54 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     }
     return results;
 }
+
+LogosList PackageDownloaderImpl::resolveDependencies(const std::string& dependenciesJson,
+                                                    const std::string& installedPackagesJson) {
+    // Same exception fence + per-input attribution as
+    // downloadResolvedDependencies — see comments there.
+    LogosList results = LogosList::array();
+
+    std::vector<std::string> requestedNames;
+    try {
+        LogosList deps = LogosList::parse(dependenciesJson);
+        if (deps.is_array()) {
+            for (const auto& d : deps) {
+                if (d.is_string()) {
+                    requestedNames.push_back(d.get<std::string>());
+                } else if (d.is_object()) {
+                    std::string n = d.value("name", "");
+                    if (!n.empty()) requestedNames.push_back(std::move(n));
+                }
+            }
+        }
+    } catch (...) { /* best-effort attribution */ }
+
+    auto pushError = [&](const std::string& msg) {
+        if (requestedNames.empty()) {
+            LogosMap e = LogosMap::object();
+            e["error"] = msg;
+            results.push_back(e);
+            return;
+        }
+        for (const auto& n : requestedNames) {
+            LogosMap e = LogosMap::object();
+            e["name"]  = n;
+            e["error"] = msg;
+            results.push_back(e);
+        }
+    };
+
+    try {
+        // resolveDependenciesJson already returns the per-entry shape we
+        // want ({name, version, rootHash, repositoryUrl, url, topLevel}
+        // or {name, error}); we just pass it through to the caller.
+        LogosList resolved = LogosList::parse(
+            m_lib->resolveDependenciesJson(dependenciesJson, installedPackagesJson));
+        for (const auto& entry : resolved) results.push_back(entry);
+    } catch (const std::exception& ex) {
+        pushError(std::string("resolver exception: ") + ex.what());
+    } catch (...) {
+        pushError("resolver exception: unknown");
+    }
+    return results;
+}

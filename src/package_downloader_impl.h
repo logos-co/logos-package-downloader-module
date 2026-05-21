@@ -53,6 +53,16 @@ public:
     // produces (string or {name,version?,signer?}).
     LogosList downloadResolvedDependencies(const std::string& dependenciesJson);
 
+    // Same resolver pass as downloadResolvedDependencies but no
+    // download. Callers preview the dep impact, then drive the actual
+    // install through the regular download path once the user
+    // confirms. installedPackagesJson is optional shape
+    // [name version rootHash] entries; when supplied the resolver
+    // short-circuits transitive deps already satisfied on disk. Pass
+    // empty string to disable that and get every transitive resolved
+    // from the catalog.
+    LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson);
+
 protected:
     // Fires once, after the framework has populated the LogosModuleContext
     // getters (`modulePath()`, `instanceId()`, `instancePersistencePath()`)
