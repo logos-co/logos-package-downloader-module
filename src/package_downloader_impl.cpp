@@ -1,9 +1,10 @@
 // Logos module bridge for the lgpd C++ library.
 //
-// Exposes the legacy single-repo/release-tag API to QML and other Logos
-// modules while delegating to the new multi-repo `lgpd::PackageDownloaderLib`.
-// The `releaseTag` parameters are accepted for source-compatibility with
-// callers that haven't migrated yet but are otherwise ignored.
+// Exposes the multi-repo catalog API of `lgpd::PackageDownloaderLib` to
+// QML and other Logos modules over IPC: repository management, catalog
+// reads, pinned + dependency-resolving downloads, and a download-free
+// `resolveDependencies` preview. The legacy single-repo/release-tag
+// shims have been removed.
 
 #include "package_downloader_impl.h"
 
@@ -15,6 +16,7 @@
 #include <exception>
 #include <filesystem>
 #include <string>
+#include <utility>   // std::move
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -31,7 +33,13 @@ std::string defaultConfigPath() {
     } else if (const char* home = std::getenv("HOME"); home && *home) {
         base = fs::path(home) / ".config";
     } else {
-        base = fs::temp_directory_path() / "logos";
+        // No XDG_CONFIG_HOME and no HOME: fall back to a temp dir. This
+        // already ends in a `logos` segment, so don't append another one
+        // below — otherwise the path became `<tmp>/logos/logos/…`,
+        // inconsistent with the XDG/HOME branches which add exactly one
+        // `logos` segment.
+        return (fs::temp_directory_path() / "logos" / "package-downloader"
+                / "repositories.json").string();
     }
     return (base / "logos" / "package-downloader" / "repositories.json").string();
 }
@@ -44,9 +52,9 @@ LogosMap makeResult(const std::string& err) {
 }
 
 // Single-shot download with full (repo, version, hash) pinning. Used by
-// `downloadPackage` and `downloadPackages` below. Kept as a free function
-// rather than a method so it can be reused without the codegen seeing
-// overload ambiguity.
+// `downloadPinned` and `downloadResolvedDependencies` below. Kept as a
+// free function rather than a method so it can be reused without the
+// codegen seeing overload ambiguity.
 LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
                         const std::string& repoUrlOrName,
                         const std::string& packageName,
@@ -74,11 +82,11 @@ PackageDownloaderImpl::PackageDownloaderImpl()
     // Constructor seeds m_lib with an XDG-style fallback so callers that
     // bypass the LogosAPI framework (the `lgpd` CLI tests, unit tests
     // constructing the impl directly) still get a working downloader.
-    // When the framework drives the module, onInit() below re-points
-    // m_lib at the host-provided persistence directory. The replacement
-    // is cheap because no fetches or registry mutations have happened
-    // yet — the only sunk cost is reading the (possibly absent) XDG
-    // config file once in the lib's constructor.
+    // When the framework drives the module, onContextReady() below
+    // re-points m_lib at the host-provided persistence directory. The
+    // replacement is cheap because no fetches or registry mutations have
+    // happened yet — the only sunk cost is reading the (possibly absent)
+    // XDG config file once in the lib's constructor.
 }
 
 PackageDownloaderImpl::~PackageDownloaderImpl() { delete m_lib; }
@@ -101,8 +109,13 @@ void PackageDownloaderImpl::onContextReady() {
     if (instancePersistencePath().empty()) return;
     const std::string newPath =
         (fs::path(instancePersistencePath()) / "repositories.json").string();
+    // Construct the replacement BEFORE freeing the old one: if the
+    // constructor throws (e.g. bad_alloc), m_lib still points at the
+    // valid XDG-seeded instance instead of being left dangling for the
+    // destructor to double-free.
+    auto* replacement = new lgpd::PackageDownloaderLib(newPath);
     delete m_lib;
-    m_lib = new lgpd::PackageDownloaderLib(newPath);
+    m_lib = replacement;
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
@@ -143,7 +156,10 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
 }
 
 LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson) {
-    // Same exception fence as downloadPackages — see comment there.
+    // Exception fence: the resolver/downloader can throw on malformed
+    // catalog data; we convert any throw into per-package error rows
+    // (below) so one bad entry never takes down the whole batch.
+    // `resolveDependencies` reuses this same pattern.
     LogosList results = LogosList::array();
 
     // Extract the requested top-level names up front so a failure that
