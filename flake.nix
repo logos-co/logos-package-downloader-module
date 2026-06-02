@@ -20,5 +20,13 @@
           packages.default = "lib";
         };
       };
+      tests = {
+        dir = ./tests;
+        # Link-time-mock the package_downloader external lib: the real
+        # network/disk-backed PackageDownloaderLib is replaced by
+        # tests/mocks/mock_package_downloader_lib.cpp. Key matches the
+        # externalLibInputs entry above.
+        mockCLibs = [ "package_downloader" ];
+      };
     };
 }

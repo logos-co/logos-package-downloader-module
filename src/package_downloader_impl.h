@@ -3,10 +3,23 @@
 #include <string>
 #include <vector>
 #include <logos_json.h>
+#include <logos_module_context.h>
 
-class PackageDownloaderLib;
+namespace lgpd { class PackageDownloaderLib; }
 
-class PackageDownloaderImpl {
+/**
+ * Bridges the lgpd C++ library to the Logos module ABI.
+ *
+ * Surface is the multi-repo API. The legacy single-repo / release-tag
+ * shims (`getReleases`, `getPackages(tag[, category])`, `getCategories(tag)`,
+ * `downloadPackage(tag, name)`, `downloadPackages(tag, names)`,
+ * `resolveDependencies(tag, names)`) were removed once the QML UI migrated
+ * to `getCatalog` / `downloadResolvedDependencies` / `downloadPinned`. The
+ * catalog is the union across every enabled repository (the hardcoded
+ * default plus any user repositories configured via the `lgpd` CLI's
+ * `repo` commands or this module's `addRepository`).
+ */
+class PackageDownloaderImpl : public LogosModuleContext {
 public:
     PackageDownloaderImpl();
     ~PackageDownloaderImpl();
@@ -14,23 +27,51 @@ public:
     PackageDownloaderImpl(const PackageDownloaderImpl&) = delete;
     PackageDownloaderImpl& operator=(const PackageDownloaderImpl&) = delete;
 
-    // Package catalog
-    // releaseTag: GitHub release tag; empty string resolves to "latest"
-    LogosList getPackages(const std::string& releaseTag);
-    LogosList getPackages(const std::string& releaseTag, const std::string& category);
-    LogosList getCategories(const std::string& releaseTag);
-    LogosList resolveDependencies(const std::string& releaseTag, const std::vector<std::string>& packageNames);
+    // NB: every method declaration here MUST be on a single line. The
+    // Logos C++ codegen's `--from-header` parser scans line-by-line and
+    // silently drops methods whose declaration wraps. See
+    // repos/logos-cpp-sdk/cpp-generator/experimental/impl_header_parser.cpp,
+    // around `if (line.endsWith(';'))`.
 
-    // GitHub releases (returns top 30 most recent, each entry is a LogosMap
-    // with keys: tag_name, name, published_at, prerelease, html_url)
-    LogosList getReleases();
+    // Multi-repo API — used by the "Manage Repositories" UI and by any
+    // caller that needs per-repo, per-version, per-signer downloads.
+    // All mutating calls return `{ "success": bool, "error": string? }`.
+    LogosMap  addRepository(const std::string& url);
+    LogosMap  removeRepository(const std::string& url);
+    LogosMap  setRepositoryEnabled(const std::string& url, bool enabled);
+    LogosList listRepositories();
+    LogosMap  refreshCatalog();
+    LogosList getCatalog();
+    LogosList getCatalogForRepo(const std::string& repoUrlOrName);
 
-    // Download (blocking — logos core auto-generates async wrappers)
-    // Returns: { "name": "...", "path": "...", "error": "..." }
-    LogosMap downloadPackage(const std::string& releaseTag, const std::string& packageName);
-    // Returns: [ { "name": "...", "path": "...", "error": "..." }, ... ]
-    LogosList downloadPackages(const std::string& releaseTag, const std::vector<std::string>& packageNames);
+    // Pinned download — picks an exact (repository, version, rootHash)
+    // candidate from the merged catalog. Empty args mean "any matching".
+    LogosMap  downloadPinned(const std::string& repoUrlOrName, const std::string& packageName, const std::string& version, const std::string& rootHash);
+
+    // Resolve a manifest-style dependency list and download every resolved
+    // package in install order. The JSON shape is what `manifest.dependencies`
+    // produces (string or {name,version?,signer?}).
+    LogosList downloadResolvedDependencies(const std::string& dependenciesJson);
+
+    // Same resolver pass as downloadResolvedDependencies but no
+    // download. Callers preview the dep impact, then drive the actual
+    // install through the regular download path once the user
+    // confirms. installedPackagesJson is optional shape
+    // [name version rootHash] entries; when supplied the resolver
+    // short-circuits transitive deps already satisfied on disk. Pass
+    // empty string to disable that and get every transitive resolved
+    // from the catalog.
+    LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson);
+
+protected:
+    // Fires once, after the framework has populated the LogosModuleContext
+    // getters (`modulePath()`, `instanceId()`, `instancePersistencePath()`)
+    // and before any method is dispatched. We use it to re-anchor m_lib's
+    // config file under the host-provided persistence directory; the
+    // constructor seeds an XDG fallback so callers bypassing the
+    // framework (lgpd CLI, unit tests) still see a working lib.
+    void onContextReady() override;
 
 private:
-    PackageDownloaderLib* m_lib;
+    lgpd::PackageDownloaderLib* m_lib;
 };
