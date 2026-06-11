@@ -15,6 +15,7 @@ logos_test(
     TEST_SOURCES
         main.cpp
         test_package_downloader.cpp
+        package_downloader_events_test.cpp
     MOCK_C_SOURCES
         mocks/mock_package_downloader_lib.cpp
     EXTRA_INCLUDES
