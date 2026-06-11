@@ -63,6 +63,12 @@ public:
     // from the catalog.
     LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson);
 
+    // catalogChanged fires on success from addRepository, removeRepository,
+    // and setRepositoryEnabled — Subscribers re-fetch via
+    // listRepositories() / getCatalog().
+logos_events:
+    void catalogChanged();
+
 protected:
     // Fires once, after the framework has populated the LogosModuleContext
     // getters (`modulePath()`, `instanceId()`, `instancePersistencePath()`)

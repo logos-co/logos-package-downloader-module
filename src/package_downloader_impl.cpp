@@ -121,15 +121,21 @@ void PackageDownloaderImpl::onContextReady() {
 // ── Multi-repo API ─────────────────────────────────────────────────────────
 
 LogosMap PackageDownloaderImpl::addRepository(const std::string& url) {
-    return makeResult(m_lib->registry().addRepository(url));
+    const std::string err = m_lib->registry().addRepository(url);
+    if (err.empty()) catalogChanged();
+    return makeResult(err);
 }
 
 LogosMap PackageDownloaderImpl::removeRepository(const std::string& url) {
-    return makeResult(m_lib->registry().removeRepository(url));
+    const std::string err = m_lib->registry().removeRepository(url);
+    if (err.empty()) catalogChanged();
+    return makeResult(err);
 }
 
 LogosMap PackageDownloaderImpl::setRepositoryEnabled(const std::string& url, bool enabled) {
-    return makeResult(m_lib->registry().setEnabled(url, enabled));
+    const std::string err = m_lib->registry().setEnabled(url, enabled);
+    if (err.empty()) catalogChanged();
+    return makeResult(err);
 }
 
 LogosList PackageDownloaderImpl::listRepositories() {
