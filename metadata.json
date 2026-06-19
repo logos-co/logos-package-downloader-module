@@ -1,5 +1,6 @@
 {
     "name": "package_downloader",
+    "display_name": "Package Downloader",
     "version": "1.0.0",
     "description": "Online package catalog and download service",
     "author": "Logos Core Team",
