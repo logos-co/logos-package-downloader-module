@@ -9300,11 +9300,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784207645,
-        "narHash": "sha256-FEq/vi4ejVFmltUFl6SuP7WwKgy7JgZULekYcUWmUKE=",
+        "lastModified": 1784226863,
+        "narHash": "sha256-4B+UmgnZTIY3tvXSHtFAVaiGzHYm7Lmo/LaYrt4BinM=",
         "owner": "logos-co",
         "repo": "logos-package-downloader",
-        "rev": "736f8ebcf06f754a58e80bde0a51645070418573",
+        "rev": "8d5128b2195bb8bdebb3f623fa2026b0546203dc",
         "type": "github"
       },
       "original": {
