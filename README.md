@@ -41,7 +41,7 @@ under the module's data directory. Mutating calls return
 | Method | Return | Description |
 |--------|--------|-------------|
 | `resolveDependencies(depsJson, installedJson)` | `QVariantList` | **Preview, no download.** Resolve a manifest-style dep list into install-ordered entries `{name, version, rootHash, repositoryUrl, url, topLevel}`. `installedJson` (optional `[{name,version,rootHash}]`) lets it omit transitive deps already satisfied on-disk |
-| `downloadResolvedDependencies(depsJson)` | `QVariantList` | Resolve **and** download every entry in install order. Each result: `{name, path, error?}` |
+| `downloadResolvedDependencies(depsJson, installedJson)` | `QVariantList` | Resolve **and** download every entry in install order. Each result: `{name, path, error?}` |
 | `downloadPinned(repoUrlOrName, name, version, rootHash)` | `QVariantMap` | Download one exact build. Empty args mean "any": empty repo → any enabled repo, empty version → newest, empty rootHash → don't disambiguate. Returns `{name, path, error?}` |
 
 ### Usage from another module
@@ -59,7 +59,7 @@ QVariantList plan = logos.package_downloader.resolveDependencies(
 
 // Resolve + download chat_module and its deps, then install each
 QVariantList results = logos.package_downloader.downloadResolvedDependencies(
-    R"([{"name":"chat_module"}])");
+    R"([{"name":"chat_module"}])", /*installedPackagesJson*/"");
 for (const auto& r : results) {
     QVariantMap item = r.toMap();
     if (!item.contains("error"))

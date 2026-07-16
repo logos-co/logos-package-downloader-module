@@ -50,8 +50,14 @@ public:
 
     // Resolve a manifest-style dependency list and download every resolved
     // package in install order. The JSON shape is what `manifest.dependencies`
-    // produces (string or {name,version?,signer?}).
-    LogosList downloadResolvedDependencies(const std::string& dependenciesJson);
+    // produces (string or {name,version?,signer?}). installedPackagesJson is
+    // the same optional [{name,version,rootHash}] shape resolveDependencies
+    // takes: when supplied, an already-installed dep whose version satisfies the
+    // range is kept rather than re-downloaded at the newest version. Pass "" to
+    // resolve every transitive from the catalog. Must match what the preview
+    // (resolveDependencies) was given, or the download silently upgrades a dep
+    // the preview said would stay put.
+    LogosList downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson);
 
     // Same resolver pass as downloadResolvedDependencies but no
     // download. Callers preview the dep impact, then drive the actual

@@ -195,7 +195,7 @@ LOGOS_TEST(downloadResolvedDependencies_downloads_each_resolved_entry) {
     t.mockCFunction("downloadPackage").returns("/tmp/dl/chat_module.lgx");
     PackageDownloaderImpl impl;
 
-    LogosList results = impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])");
+    LogosList results = impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_EQ(results.size(), static_cast<size_t>(1));
     LOGOS_ASSERT_EQ(results[0]["name"].get<std::string>(), std::string("chat_module"));
     LOGOS_ASSERT_EQ(results[0]["path"].get<std::string>(), std::string("/tmp/dl/chat_module.lgx"));
@@ -211,7 +211,7 @@ LOGOS_TEST(downloadResolvedDependencies_attributes_unnamed_resolver_error) {
         R"([{"error":"no candidate matches 'chat_module'"}])");
     PackageDownloaderImpl impl;
 
-    LogosList results = impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])");
+    LogosList results = impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_EQ(results.size(), static_cast<size_t>(1));
     LOGOS_ASSERT_EQ(results[0]["name"].get<std::string>(), std::string("chat_module"));
     LOGOS_ASSERT_CONTAINS(results[0]["error"].get<std::string>(), std::string("no candidate"));
@@ -225,7 +225,7 @@ LOGOS_TEST(downloadResolvedDependencies_malformed_output_attributes_error_per_re
     PackageDownloaderImpl impl;
 
     LogosList results = impl.downloadResolvedDependencies(
-        R"([{"name":"a"},{"name":"b"}])");
+        R"([{"name":"a"},{"name":"b"}])", "");
     LOGOS_ASSERT_EQ(results.size(), static_cast<size_t>(2));
     LOGOS_ASSERT_EQ(results[0]["name"].get<std::string>(), std::string("a"));
     LOGOS_ASSERT_EQ(results[1]["name"].get<std::string>(), std::string("b"));
