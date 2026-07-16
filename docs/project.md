@@ -178,7 +178,7 @@ single-line declaration in the header into a provider method plus an auto-genera
 | `getCatalog` | `LogosList getCatalog()` | Merged catalog across all enabled repos. Each entry: `{repositoryUrl, repositoryName, repositoryDisplayName, name, type, category, author, description, icon, versions[]}` (versions newest-first). Parses `m_lib->getCatalogJson()` |
 | `getCatalogForRepo` | `LogosList getCatalogForRepo(const std::string& repoUrlOrName)` | Same shape as `getCatalog`, scoped to one repository (identified by URL or name). Parses `m_lib->getCatalogForRepoJson(...)` |
 | `downloadPinned` | `LogosMap downloadPinned(const std::string& repoUrlOrName, const std::string& packageName, const std::string& version, const std::string& rootHash)` | Download one exact build. Empty args mean "any": empty repo → any enabled repo, empty version → newest, empty rootHash → don't disambiguate. Returns `{name, path, error?}` (plus `version` / `rootHash` / `repositoryUrl` when those args were supplied) |
-| `downloadResolvedDependencies` | `LogosList downloadResolvedDependencies(const std::string& dependenciesJson)` | Resolve a manifest-style dep list (`["name", ...]` or `[{name,version?,signer?}, ...]`) and download every resolved entry in install order. Each result row: `{name, path, error?}`. Exception-fenced to per-package error rows |
+| `downloadResolvedDependencies` | `LogosList downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson)` | Resolve a manifest-style dep list (`["name", ...]` or `[{name,version?,signer?}, ...]`) and download every resolved entry in install order. Each result row: `{name, path, error?}`. Exception-fenced to per-package error rows |
 | `resolveDependencies` | `LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson)` | **Download-free preview.** Resolves the dep list into install-ordered entries `{name, version, rootHash, repositoryUrl, url, topLevel}`. `installedPackagesJson` (optional `[{name,version,rootHash}]`) lets the resolver short-circuit transitive deps already on disk; empty string resolves all transitives from the catalog |
 | `catalogChanged` | `void catalogChanged()` *(under `logos_events:`)* | Event signal fired on success from `addRepository` / `removeRepository` / `setRepositoryEnabled`. Subscribers re-fetch via `listRepositories()` / `getCatalog()` |
 | `onContextReady` | `void onContextReady() override` *(protected)* | `LogosModuleContext` lifecycle hook. Fires after the host populates `modulePath()` / `instanceId()` / `instancePersistencePath()` and before any method dispatch; re-anchors the lib's `repositories.json` under `instancePersistencePath()` (no-op when that path is empty, keeping the XDG fallback) |
@@ -301,7 +301,7 @@ QVariantList plan = logos.package_downloader.resolveDependencies(
 
 // Resolve + download chat_module and its deps, then install each
 QVariantList results = logos.package_downloader.downloadResolvedDependencies(
-    R"([{"name":"chat_module"}])");
+    R"([{"name":"chat_module"}])", /*installedPackagesJson*/"");
 for (const auto& r : results) {
     QVariantMap item = r.toMap();
     if (!item.contains("error"))
@@ -320,7 +320,7 @@ QVariantMap one = logos.package_downloader.downloadPinned(
   the UI to re-fetch on any repo mutation.
 - **Preview-then-commit install.** `resolveDependencies(depsJson, installedJson)` shows the
   install-ordered plan with `topLevel` flags and no download; after user confirmation,
-  `downloadResolvedDependencies(depsJson)` downloads each entry and the caller installs the
+  `downloadResolvedDependencies(depsJson, installedJson)` downloads each entry (keeping already-installed satisfying deps) and the caller installs the
   returned `.lgx` paths (e.g. via `package_manager.installPlugin`).
 - **Pinned / exact download.** `downloadPinned(repo, name, version, rootHash)` fetches a
   single specific build; empty args broaden the match (any repo / newest version / no hash
