@@ -161,7 +161,7 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
     return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash);
 }
 
-LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson) {
+LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson) {
     // Exception fence: the resolver/downloader can throw on malformed
     // catalog data; we convert any throw into per-package error rows
     // (below) so one bad entry never takes down the whole batch.
@@ -215,7 +215,7 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     };
 
     try {
-        LogosList resolved = LogosList::parse(m_lib->resolveDependenciesJson(dependenciesJson));
+        LogosList resolved = LogosList::parse(m_lib->resolveDependenciesJson(dependenciesJson, installedPackagesJson));
         for (const auto& entry : resolved) {
             if (!entry.is_object()) continue;
             if (entry.contains("error")) {
