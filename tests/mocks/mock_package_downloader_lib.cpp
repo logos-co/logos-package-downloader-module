@@ -76,6 +76,7 @@ std::string PackageDownloaderLib::refreshCatalogs() {
 
 std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOrName*/,
                                                   const std::string& /*packageName*/,
+                                                  std::string& /*errorMessage*/,
                                                   const std::string& /*version*/,
                                                   const std::string& /*rootHash*/,
                                                   const std::string& /*outputDir*/) {

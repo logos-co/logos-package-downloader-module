@@ -3,7 +3,7 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    logos-package-downloader.url = "github:logos-co/logos-package-downloader";
+    logos-package-downloader.url = "github:logos-co/logos-package-downloader?ref=5e1a843b11bc54c9ac9d445c4aaf6c041076d1c5";
   };
 
   outputs = inputs@{ logos-module-builder, ... }:
