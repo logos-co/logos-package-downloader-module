@@ -14,6 +14,8 @@ logos_module(
     SOURCES
         src/package_downloader_impl.h
         src/package_downloader_impl.cpp
+        src/storage_fetcher.h
+        src/storage_fetcher.cpp
     EXTERNAL_LIBS
         package_downloader_lib
 )

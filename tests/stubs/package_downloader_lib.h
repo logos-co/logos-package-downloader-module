@@ -24,6 +24,20 @@ namespace lgpd {
 /// to a `downloadProgress` event.
 using ProgressFn = std::function<void(std::uint64_t received, std::uint64_t total)>;
 
+struct FetchResult {
+    bool ok = false;
+    std::string error;
+};
+
+// Pure virtual: nothing to mock at link time.
+class Fetcher {
+public:
+    virtual ~Fetcher() = default;
+
+    virtual FetchResult get(const std::string& url, std::string& out) = 0;
+    virtual FetchResult getToFile(const std::string& url, const std::string& path) = 0;
+};
+
 class RepositoryRegistry {
 public:
     // All three return an empty string on success or an error message.
