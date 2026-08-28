@@ -1,1 +1,2 @@
-./doctests/outputs
+doctests/outputs/
+result
