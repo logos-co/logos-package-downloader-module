@@ -9,6 +9,7 @@
     "category": "management",
     "main": "package_downloader_plugin",
     "dependencies": [],
+    "concurrency": "multi",
     "include": [
         "libpackage_downloader_lib.so",
         "libpackage_downloader_lib.dylib"

@@ -62,9 +62,19 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
                         const std::string& rootHash) {
     LogosMap result = LogosMap::object();
     result["name"] = packageName;
-    std::string path = lib->downloadPackage(repoUrlOrName, packageName, version, rootHash);
+
+    std::string err;
+    std::string path =
+        lib->downloadPackage(repoUrlOrName, packageName, err, version, rootHash);
+
     if (path.empty()) {
-        result["error"] = std::string("download failed for '") + packageName + "'";
+        std::string msg = std::string("download failed for '") + packageName + "'";
+
+        if (!err.empty()) {
+            msg += " — " + err;
+        }
+
+        result["error"] = msg;
     } else {
         result["path"] = path;
         if (!version.empty())  result["version"]  = version;
