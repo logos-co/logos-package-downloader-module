@@ -8,8 +8,8 @@
 // disk-backed library.
 //
 // The real header lives in the `logos-package-downloader` repo; this
-// stub deliberately omits everything the impl doesn't touch (Fetcher,
-// Repository, kDefaultRepositoryUrl, the registry's list/refresh/find
+// stub deliberately omits everything the impl doesn't touch (Repository,
+// kDefaultRepositoryUrl, the registry's list/refresh/find
 // helpers, etc.). Keep it in sync with the methods invoked in
 // src/package_downloader_impl.cpp.
 

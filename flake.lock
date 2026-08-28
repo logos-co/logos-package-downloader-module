@@ -67641,17 +67641,17 @@
         "logos-storage": "logos-storage"
       },
       "locked": {
-        "lastModified": 1786640625,
-        "narHash": "sha256-ROhWFY33MAztxGOqIhN/RKtiM3u+aTLFAG6fsc40jqM=",
+        "lastModified": 1787909477,
+        "narHash": "sha256-YT0XpBNDH4PaW4BLuR8AbilM7cngFCcMsLprvi/DoRE=",
         "owner": "logos-co",
         "repo": "logos-storage-module",
-        "rev": "f6bfab346040e1a757f8528258819552e83503c7",
+        "rev": "2a76429ceaf6ebc3f6017dce58c419be9333f335",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
-        "ref": "refs/tags/v2.1.2",
         "repo": "logos-storage-module",
+        "rev": "2a76429ceaf6ebc3f6017dce58c419be9333f335",
         "type": "github"
       }
     }

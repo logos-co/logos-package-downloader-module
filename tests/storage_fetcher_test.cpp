@@ -44,7 +44,10 @@ LOGOS_TEST(getToFile_succeeds) {
             return true;
         };
 
-    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone);
+    StorageFetcher::DownloadCancel downloadCancel =
+        [](const std::string&) { return std::string(); };
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -72,7 +75,10 @@ LOGOS_TEST(getToFile_returns_the_error_from_the_download_event) {
             return true;
         };
 
-    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone);
+    StorageFetcher::DownloadCancel downloadCancel =
+        [](const std::string&) { return std::string(); };
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -91,7 +97,10 @@ LOGOS_TEST(getToFile_returns_the_error_when_the_downloadToUrl_returns_an_error) 
             return true;
         };
 
-    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone);
+    StorageFetcher::DownloadCancel downloadCancel =
+        [](const std::string&) { return std::string(); };
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -113,7 +122,10 @@ LOGOS_TEST(getToFile_downloads_nothing_when_the_subscription_failed) {
             return false;
         };
 
-    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone);
+    StorageFetcher::DownloadCancel downloadCancel =
+        [](const std::string&) { return std::string(); };
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -145,7 +157,10 @@ LOGOS_TEST(getToFile_refuses_a_cid_already_in_progress) {
             return true;
         };
 
-    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone);
+    StorageFetcher::DownloadCancel downloadCancel =
+        [](const std::string&) { return std::string(); };
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel);
     fetcherPtr = &fetcher;
 
     lgpd::FetchResult firstCall = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -162,12 +177,39 @@ LOGOS_TEST(getToFile_times_out_when_no_event_arrives) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [](std::function<void(const std::string&)>) { return true; };
 
+    StorageFetcher::DownloadCancel downloadCancel =
+        [](const std::string&) { return std::string(); };
+
     const std::chrono::milliseconds downloadTimeout(50);
 
-    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadTimeout);
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel, downloadTimeout);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
     LOGOS_ASSERT_FALSE(r.ok);
     LOGOS_ASSERT_TRUE(r.error.find("timed out") != std::string::npos);
+}
+
+LOGOS_TEST(getToFile_is_cancelled_on_timeout) {
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [](const std::string&, const std::string&) { return std::string(); };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [](std::function<void(const std::string&)>) { return true; };
+
+    std::string cancelledCid;
+
+    StorageFetcher::DownloadCancel downloadCancel =
+        [&](const std::string& cid) {
+            cancelledCid = cid;
+            return std::string();
+        };
+
+    const std::chrono::milliseconds downloadTimeout(50);
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, downloadCancel, downloadTimeout);
+
+    fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_EQ(cancelledCid, std::string("cid-1"));
 }

@@ -12,8 +12,9 @@
 namespace fs = std::filesystem;
 
 StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDone onStorageDownloadDone,
-                               std::chrono::milliseconds downloadTimeout)
+                               DownloadCancel downloadCancel, std::chrono::milliseconds downloadTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
+    , m_downloadCancel(std::move(downloadCancel))
     , m_downloadTimeout(downloadTimeout)
 {
     m_subscribed = onStorageDownloadDone([this](const std::string& payload) {
@@ -82,10 +83,18 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
     if (done.wait_for(m_downloadTimeout) != std::future_status::ready) {
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        // Just in case the download finished while we were waiting for the lock.
+        // We double check to make sure that the download is still pending and
+        // wasn't completed while we were waiting for the lock.
         if (m_pending.count(cid) > 0) {
             m_pending.erase(cid);
-            return {false, "timed out waiting for the download of " + cid};
+
+            std::string error = "timed out waiting for the download of " + cid;
+
+            if (std::string cancelError = m_downloadCancel(cid); !cancelError.empty()) {
+                error += " (cancel failed: " + cancelError + ")";
+            }
+
+            return {false, error};
         }
     }
 
@@ -93,15 +102,30 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
 }
 
 void StorageFetcher::onDownloadDone(const std::string& payload) {
-    LogosMap event;
+    std::string cid;
+    lgpd::FetchResult result;
 
+    // The whole read is fenced, not just the parse: a payload that is
+    // not an object, or a field of the wrong type, throws too — and we
+    // are on the module's event thread, where an escaping exception
+    // takes down more than this download.
     try {
-        event = LogosMap::parse(payload);
+        const LogosMap event = LogosMap::parse(payload);
+
+        if (!event.is_object()) {
+            return;
+        }
+
+        cid = event.value("sessionId", "");
+
+        if (event.value("success", false)) {
+            result = {true, {}};
+        } else {
+            result = {false, event.value("error", "storage download failed")};
+        }
     } catch (...) {
         return;
     }
-
-    const std::string cid = event.value("sessionId", "");
 
     if (cid.empty()) {
         // Should never happen.
@@ -115,11 +139,6 @@ void StorageFetcher::onDownloadDone(const std::string& payload) {
         return;
     }
 
-    if (event.value("success", false)) {
-        m_pending[cid].set_value({true, {}});
-    } else {
-        m_pending[cid].set_value({false, event.value("error", "storage download failed")});
-    }
-
+    m_pending[cid].set_value(std::move(result));
     m_pending.erase(cid);
 }
