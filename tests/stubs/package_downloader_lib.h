@@ -29,7 +29,6 @@ struct FetchResult {
     std::string error;
 };
 
-// Pure virtual: nothing to mock at link time.
 class Fetcher {
 public:
     virtual ~Fetcher() = default;
