@@ -7,6 +7,8 @@
 // shims have been removed.
 
 #include "package_downloader_impl.h"
+#include "storage_fetcher.h"
+#include "logos_sdk.h"
 
 #include <package_downloader_lib.h>
 
@@ -17,6 +19,7 @@
 #include <exception>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>   // std::move
 #include <vector>
@@ -45,6 +48,8 @@ std::string defaultConfigPath() {
     }
     return (base / "logos" / "package-downloader" / "repositories.json").string();
 }
+
+constexpr int64_t chunkSize = 65536;
 
 LogosMap makeResult(const std::string& err) {
     LogosMap r = LogosMap::object();
@@ -142,6 +147,30 @@ void PackageDownloaderImpl::onContextReady() {
     auto* replacement = new lgpd::PackageDownloaderLib(newPath);
     delete m_lib;
     m_lib = replacement;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [this](const std::string& cid, const std::string& path) {
+            const StdLogosResult r =
+                modules().storage_module.downloadToUrl(cid, path, false, chunkSize);
+
+            return r.success ? std::string() : r.error;
+        };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [this](std::function<void(const std::string&)> callback) {
+            return modules().storage_module.onStorageDownloadDone(std::move(callback));
+        };
+
+    StorageFetcher::DownloadCancel downloadCancel =
+        [this](const std::string& cid) {
+            const StdLogosResult r = modules().storage_module.downloadCancel(cid);
+
+            return r.success ? std::string() : r.error;
+        };
+
+    m_lib->setStorageFetcher(
+        std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone, downloadCancel)
+    );
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────

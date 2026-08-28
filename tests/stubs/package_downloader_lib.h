@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace lgpd {
@@ -72,6 +73,8 @@ public:
 
     std::string resolveDependenciesJson(const std::string& dependenciesJson,
                                         const std::string& installedPackagesJson = "");
+
+    void setStorageFetcher(std::shared_ptr<Fetcher> fetcher);
 
 private:
     RepositoryRegistry registry_;

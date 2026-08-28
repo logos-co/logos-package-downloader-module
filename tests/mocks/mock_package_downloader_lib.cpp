@@ -100,6 +100,10 @@ std::string PackageDownloaderLib::resolveDependenciesJson(const std::string& /*d
     return mockStr("resolveDependenciesJson", "[]");
 }
 
+void PackageDownloaderLib::setStorageFetcher(std::shared_ptr<Fetcher> /*fetcher*/) {
+    LOGOS_CMOCK_RECORD("setStorageFetcher");
+}
+
 // ── RepositoryRegistry ──────────────────────────────────────────────────
 
 std::string RepositoryRegistry::addRepository(const std::string& /*url*/) {
