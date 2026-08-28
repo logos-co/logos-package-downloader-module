@@ -3,3 +3,7 @@
 std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules&) {
     return nullptr;
 }
+
+std::string makeNetwork(LogosModules&) {
+    return {};
+}

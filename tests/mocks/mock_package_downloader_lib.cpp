@@ -104,6 +104,10 @@ void PackageDownloaderLib::setStorageFetcher(std::shared_ptr<Fetcher> /*fetcher*
     LOGOS_CMOCK_RECORD("setStorageFetcher");
 }
 
+void PackageDownloaderLib::setNetwork(const std::string& /*network*/) {
+    LOGOS_CMOCK_RECORD("setNetwork");
+}
+
 // ── RepositoryRegistry ──────────────────────────────────────────────────
 
 std::string RepositoryRegistry::addRepository(const std::string& /*url*/) {

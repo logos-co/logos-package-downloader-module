@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 namespace lgpd { class Fetcher; }
 
@@ -8,3 +9,5 @@ namespace lgpd { class Fetcher; }
 struct LogosModules;
 
 std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules);
+
+std::string makeNetwork(LogosModules& modules);

@@ -147,6 +147,12 @@ void PackageDownloaderImpl::onContextReady() {
     // modules() is generated using the metadata.json dependencies.
     auto fetcher = makeStorageFetcher(modules());
     m_lib->setStorageFetcher(fetcher);
+
+    // Set network string for the downloader lib.
+    // This will be used by the Storage Fetcher to determine
+    // if the network in the repo file matches the network of the downloader lib.
+    auto network = makeNetwork(modules());
+    m_lib->setNetwork(network);
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────

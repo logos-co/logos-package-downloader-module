@@ -76,6 +76,8 @@ public:
 
     void setStorageFetcher(std::shared_ptr<Fetcher> fetcher);
 
+    void setNetwork(const std::string& network);
+
 private:
     RepositoryRegistry registry_;
 };

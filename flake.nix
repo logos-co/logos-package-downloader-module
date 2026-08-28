@@ -4,7 +4,7 @@
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
     logos-package-downloader.url = "github:logos-co/logos-package-downloader";
-    storage_module.url = "github:logos-co/logos-storage-module?rev=2a76429ceaf6ebc3f6017dce58c419be9333f335";
+    storage_module.url = "github:logos-co/logos-storage-module?rev=fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9";
   };
 
   outputs = inputs@{ logos-module-builder, ... }:

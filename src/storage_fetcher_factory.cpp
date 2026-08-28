@@ -37,3 +37,9 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
 
     return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone, downloadCancel);
 }
+
+std::string makeNetwork(LogosModules& modules) {
+    const StdLogosResult r = modules.storage_module.network();
+
+    return r.success ? r.value.get<std::string>() : std::string();
+}
