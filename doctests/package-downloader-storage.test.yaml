@@ -59,7 +59,7 @@ sections:
       - title: "Build this downloader module"
         run: |
           set -eu
-          nix build 'path:/home/arnaud/Work/logos/logos-package-downloader-module#lgx' \
+          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' \
             --override-input logos-package-downloader \
               'github:logos-co/logos-package-downloader/49f824b76594e92bd69e71519fc85f2f547997ca' \
             -o downloader-lgx
