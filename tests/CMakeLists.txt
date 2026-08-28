@@ -20,6 +20,7 @@ logos_test(
         storage_fetcher_test.cpp
     MOCK_C_SOURCES
         mocks/mock_package_downloader_lib.cpp
+        mocks/mock_storage_fetcher_factory.cpp
     EXTRA_INCLUDES
         stubs
 )
