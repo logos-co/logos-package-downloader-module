@@ -10,10 +10,10 @@ intro: |
 what_you_build: "A release-like environment, to download a file over Logos Storage with the package downloader."
 
 what_you_learn:
-  - How a catalog advertises a package over two protocols in its `urls` entry
-  - How the network is used to download a package over Logos Storage
+  - How a release publishes a package to a storage node
+  - How a catalog advertises that package over two protocols in its `urls` entry
   - Why the repository's `network` must match the storage node's own
-  - How `package_downloader` picks the Logos Storage
+  - How the storage route is used when the catalog advertises one
 
 prerequisites:
   - |
