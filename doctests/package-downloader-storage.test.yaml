@@ -7,12 +7,13 @@ intro: |
   repository advertises a `logos:<cid>` in its catalog. This tutorial proves that
   path end to end, with no dependency on the public network.
 
-what_you_build: "A local storage node holding one package, a catalog served over local HTTPS that advertises it by CID, and a `package_downloader` that fetches it from the storage network."
+what_you_build: "An release-like environmnet to download a file over the Package Downaloder using Logos Storage."
 
 what_you_learn:
   - How a catalog advertises a package over two protocols in its `urls` entry
+  - How the network is used to download a package over Logos Storage
   - Why the repository's `network` must match the storage node's own
-  - How `package_downloader` picks the storage route
+  - How `package_downloader` picks the Logos Storage
 
 prerequisites:
   - |
@@ -47,8 +48,8 @@ sections:
   - title: "Install both modules"
     step: true
     text: |
-      The storage module is a dependency of the downloader so we need
-      install it and then the downloader module.
+      The storage module is a dependency of the downloader, so we need to
+      install it, and then the downloader module.
     steps:
       - title: "Build the storage module"
         run: "nix build 'github:logos-co/logos-storage-module/fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9#lgx' -o storage-lgx"
@@ -85,8 +86,8 @@ sections:
   - title: "Serve a catalog over local HTTPS"
     step: true
     text: |
-      `addRepository` accepts `https://` URLs only so we need to
-      provide a HTTPS environment.
+      `addRepository` accepts `https://` URLs only, so we need to provide an
+      HTTPS environment.
     steps:
       - title: "Generate a certificate"
         run: |
@@ -128,11 +129,86 @@ sections:
           set -eu
           mkdir -p www
           nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
+          echo $! > caddy.pid
           sleep 2
         code_block: |
           caddy run --config Caddyfile --adapter caddyfile &
 
-  - title: "Start the storage node"
+  - title: "Simulate a release publication of Logos Storage package"
+    step: true
+    text: |
+      Release packages are published to a Logos Storage node over its HTTP API.
+      The following steps reproduce that release process.
+    steps:
+      - title: "Build the node"
+        run: |
+          set -eu
+          nix build 'git+https://github.com/logos-storage/logos-storage-nim?submodules=1#logos-storage-nim' \
+            -o storage-node
+        code_block: |
+          nix build 'git+https://github.com/logos-storage/logos-storage-nim?submodules=1#logos-storage-nim' \
+            -o storage-node
+        check_file: "storage-node/bin/storage"
+
+      - title: "Start it"
+        run: |
+          set -eu
+          # A node left over from an earlier run would answer the readiness
+          # poll below, and everything after it would talk to a stranger.
+          if curl -sf --max-time 1 http://127.0.0.1:8080/api/storage/v1/debug/info > /dev/null; then
+            echo "port 8080 already answers: stop the storage node still running" >&2
+            exit 1
+          fi
+          mkdir -p release-data
+          ./storage-node/bin/storage \
+            --data-dir="$(pwd)/release-data" \
+            --api-port=8080 --listen-port=8081 --disc-port=9091 \
+            --nat=extip:127.0.0.1 --no-bootstrap-node \
+            --log-level=DEBUG --log-file="$(pwd)/release-data/storage.log" \
+            > storage.log 2>&1 &
+          echo $! > node.pid
+          until curl -sf http://127.0.0.1:8080/api/storage/v1/debug/info \
+            | jq -e '.providerRecord != null' > /dev/null; do sleep 1; done
+          echo "Storage node up"
+        code_block: |
+          storage --data-dir=./release-data \
+            --api-port=8080 --listen-port=8081 --disc-port=9091 \
+            --nat=extip:127.0.0.1 --no-bootstrap-node &
+        expect_contains:
+          - "Storage node up"
+
+      - title: "Upload the package over HTTP api"
+        text: |
+          The same request the release workflow makes.
+        run: |
+          set -eu
+
+          LGX=$(ls downloader-lgx/*.lgx)
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/octet-stream' \
+            -H "Content-Disposition: attachment; filename=\"$(basename "$LGX")\"" \
+            --data-binary @"$LGX" \
+            http://127.0.0.1:8080/api/storage/v1/data > cid.txt
+
+          cat cid.txt
+        code_block: |
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/octet-stream' \
+            -H "Content-Disposition: attachment; filename=\"$(basename "$LGX")\"" \
+            --data-binary @"$LGX" \
+            http://127.0.0.1:8080/api/storage/v1/data > cid.txt
+        check_file: "cid.txt"
+
+      - title: "Read its SPR"
+        run: |
+          set -eu
+          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
+          cat spr.txt
+        code_block: |
+          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
+        check_file: "spr.txt"
+
+  - title: "Start the module's own node"
     step: true
     text: |
       Storage Module will be a dependency of Basecamp and logoscore that will
@@ -153,7 +229,18 @@ sections:
 
       - title: "Write the node configuration"
         text: |
-          Use the `devnet` network to not pollute the public testnet.
+          By default, Logos Storage provides 2 available networks:
+            1. logos.dev
+            2. logos.test
+
+          Here we provide our own bootstrap node, which overrides the ones the
+          network preset would supply.
+
+          But we still provide a network name because the package downloader
+          needs to know which network to use.
+
+          Note: We could let it as empty as well, but providing a network name
+          will ensure that the process works with network names.
         run: |
           set -eu
           mkdir -p "$(pwd)/storage-data"
@@ -163,7 +250,10 @@ sections:
               "log-level": "DEBUG",
               "log-file": "$(pwd)/storage-data/storage.log",
               "network": "logos.dev",
-              "nat": "extip:127.0.0.1"
+              "nat": "extip:127.0.0.1",
+              "listen-port": 8082,
+              "disc-port": 9092,
+              "bootstrap-node": ["$(cat spr.txt)"]
           }
           EOF
         code_block: |
@@ -171,7 +261,10 @@ sections:
           {
               "data-dir": "$(pwd)/storage-data",
               "network": "logos.dev",
-              "nat": "extip:127.0.0.1"
+              "nat": "extip:127.0.0.1",
+              "listen-port": 8082,
+              "disc-port": 9092,
+              "bootstrap-node": ["$(cat spr.txt)"]
           }
           EOF
         check_file: "config.json"
@@ -188,47 +281,23 @@ sections:
         expect_contains:
           - '"result":true'
 
-  - title: "Publish the package into storage"
-    step: true
-    text: |
-      Upload the `.lgx` package we are about to download.
-      This is done by the release process in the real world,
-      but here we do it manually here to not rely on external processes and
-      try to have determinist test.
-    steps:
-      - title: "Upload it"
-        run: './logos/bin/logoscore call storage_module uploadUrl "$(readlink -f downloader-lgx/*.lgx)" 65536'
-        code_block: 'logoscore call storage_module uploadUrl "$(readlink -f downloader-lgx/*.lgx)" 65536'
+      - title: "Ensure that the package does not exist on the Storage node"
+        run: './logos/bin/logoscore call storage_module exists "$(cat cid.txt)"'
+        code_block: 'logoscore call storage_module exists "$(cat cid.txt)"'
         expect_contains:
-          - '"success":true'
-
-      - title: "Capture the CID"
-        text: |
-          The upload is asynchronous so we call the manifets to get the CID.
-        run: |
-          set -eu
-          sleep 3
-          ./logos/bin/logoscore call storage_module manifests \
-            | jq -er --arg name "$(basename downloader-lgx/*.lgx)" \
-                '.result.value[] | select(.filename == $name) | .cid' > cid.txt
-          cat cid.txt
-        code_block: |
-          logoscore call storage_module manifests \
-            | jq -er --arg name "$(basename downloader-lgx/*.lgx)" \
-                '.result.value[] | select(.filename == $name) | .cid' > cid.txt
-        check_file: "cid.txt"
+          - "false"
 
   - title: "Build the catalog that advertises the CID"
     step: true
     text: |
       A catalog is two files:
-        `index.json`, which lists packages and their versions
+        `index.json`, which lists packages and their versions;
         `logos-repo.json`, which describes the repository and points at that index.
-      A sidecar is a third file that sits next to the `.lgx` and carries its CID.
+      A sidecar is a third file, sitting next to the `.lgx` and carrying its CID.
     steps:
       - title: "Write the sidecar"
         text: |
-          Super minimal version of a sidecar, add just what we need.
+          A minimal sidecar, with just what we need.
         run: |
           set -eu
           cat > www/sidecar.json <<EOF
@@ -277,6 +346,10 @@ sections:
         text: |
           `network` must equal the node's, otherwise the downloader will
           ignore the CID.
+
+          Reminder: `logos.dev` is only checked against the network the storage
+          module reports, the preset's bootstrap nodes are overridden by the
+          entry we provide by hand.
         run: |
           set -eu
           cat > www/logos-repo.json <<EOF
@@ -295,8 +368,8 @@ sections:
 
       - title: "The HTTPS fallback is a dead URL"
         text: |
-          Provide a 404 URL to make sure the downloader actually uses the storage network
-          and not the HTTPS URL.
+          A dead URL, so that a successful download can only have come from the
+          storage network.
         run: |
           set -eu
           curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt \
@@ -315,8 +388,7 @@ sections:
 
       - title: "Disable the built-in catalogue"
         text: |
-          The default catalogue is always present so we need to disable
-          it to use our local catalog.
+          The default catalog is always present, so we disable it to use ours.
         run: |
           set -eu
           ./logos/bin/logoscore call package_downloader listRepositories
@@ -359,6 +431,12 @@ sections:
         expect_contains:
           - "package_downloader"
 
+      - title: "The file is available on the Storage node"
+        run: './logos/bin/logoscore call storage_module exists "$(cat cid.txt)"'
+        code_block: 'logoscore call storage_module exists "$(cat cid.txt)"'
+        expect_contains:
+          - "true"
+
   - title: "Shut down"
     step: true
     steps:
@@ -366,7 +444,7 @@ sections:
         run: |
           ./logos/bin/logoscore call storage_module stop
           ./logos/bin/logoscore stop
-          pkill -f "caddy run"
+          kill "$(cat caddy.pid)" "$(cat node.pid)"
         code_block: |
           logoscore call storage_module stop
           logoscore stop
