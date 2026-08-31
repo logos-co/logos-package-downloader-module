@@ -7,7 +7,7 @@ intro: |
   repository advertises a `logos:<cid>` in its catalog. This tutorial proves that
   path end to end, with no dependency on the public network.
 
-what_you_build: "An release-like environmnet to download a file over the Package Downaloder using Logos Storage."
+what_you_build: "A release-like environment, to download a file over Logos Storage with the package downloader."
 
 what_you_learn:
   - How a catalog advertises a package over two protocols in its `urls` entry
@@ -101,16 +101,23 @@ sections:
 
       - title: "Write the server configuration"
         text: |
-          Create a `Caddyfile` that serves the `www` directory over HTTPS.
-          `auto_https` is off because of this error:
+          Serve the `www` directory over HTTPS with our certificate.
+
+          `auto_https disable_redirects` to disable the HTTP to HTTPS
+          redirection, which would otherwise crash caddy on startup.
+
           ```
+          enabling automatic HTTP->HTTPS redirects
           listening on 127.0.0.1:80: bind: permission denied
           ```
         run: |
           set -eu
           cat > Caddyfile <<'EOF'
           {
-              auto_https off
+              # Prevent errors:
+              # enabling automatic HTTP->HTTPS redirects
+              # listening on 127.0.0.1:80: bind: permission denied
+              auto_https disable_redirects
               admin off
           }
 
@@ -177,9 +184,19 @@ sections:
         expect_contains:
           - "Storage node up"
 
+      - title: "Read its SPR"
+        run: |
+          set -eu
+          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
+          cat spr.txt
+        code_block: |
+          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
+        check_file: "spr.txt"
+
       - title: "Upload the package over HTTP api"
         text: |
-          The same request the release workflow makes.
+          Upload the package downloader's own build to Logos Storage, the way a
+          release would.
         run: |
           set -eu
 
@@ -199,25 +216,17 @@ sections:
             http://127.0.0.1:8080/api/storage/v1/data > cid.txt
         check_file: "cid.txt"
 
-      - title: "Read its SPR"
-        run: |
-          set -eu
-          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
-          cat spr.txt
-        code_block: |
-          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
-        check_file: "spr.txt"
-
-  - title: "Start the module's own node"
+  - title: "Start the Storage Module (Package Downloader's dependency)"
     step: true
     text: |
-      Storage Module will be a dependency of Basecamp and logoscore that will
-      run by default.
-      So we need to start the daemon and load the storage module first.
+      The storage module will be a dependency of Basecamp and logoscore, running
+      by default. So we start the daemon and load it first, to recreate that
+      environment.
     steps:
       - title: "Start the daemon"
         text: |
-          Use the self-signed certificate to run the Logos daemon using the HTTPS environment.
+          The catalog is fetched with libcurl, which refuses our self-signed
+          certificate unless it is told to trust it.
         run: "sh -c 'SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logos/bin/logoscore -D -m ./modules > logs.txt 2>&1 &'"
         code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logoscore -D -m ./modules > logs.txt &"
 
@@ -239,8 +248,8 @@ sections:
           But we still provide a network name because the package downloader
           needs to know which network to use.
 
-          Note: We could let it as empty as well, but providing a network name
-          will ensure that the process works with network names.
+          Note: we could leave it empty, but naming a network makes sure the
+          path that compares network names is exercised.
         run: |
           set -eu
           mkdir -p "$(pwd)/storage-data"
@@ -297,7 +306,7 @@ sections:
     steps:
       - title: "Write the sidecar"
         text: |
-          A minimal sidecar, with just what we need.
+          A minimal sidecar is needed to build the catalog index.
         run: |
           set -eu
           cat > www/sidecar.json <<EOF
@@ -310,7 +319,10 @@ sections:
         check_file: "www/sidecar.json"
 
       - title: |
-          Build index.json and verify it advertises the CID and the HTTPS URL.
+          Build index.json
+        text: |
+          `index.json` holds the package metadata, including the CID and the HTTPS URL.
+          We verify that it advertises the CID and the HTTPS URL.
         run: |
           set -eu
 
@@ -325,8 +337,12 @@ sections:
           SSL_CERT_FILE="$(pwd)/localhost.crt" NIX_SSL_CERT_FILE="$(pwd)/localhost.crt" \
             python3 index.py build urls.txt \
               --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
-              --fetch none --no-icons -o www/index.json
+              --fetch none --no-icons -o www/index.json 2> index.log
           jq . www/index.json
+          # It downgrades a failed sidecar fetch to a warning and carries on
+          # without the CID, so its stderr is worth keeping in sight — and last,
+          # where the runner will not truncate it.
+          cat index.log
           jq -er --arg cid "logos:$(cat cid.txt)" \
             '.packages[0].versions[0].urls[0] == $cid' www/index.json
           jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
@@ -344,6 +360,8 @@ sections:
 
       - title: "Write logos-repo.json"
         text: |
+          `logos-repo.json` tells the downloader where to fetch packages from.
+
           `network` must equal the node's, otherwise the downloader will
           ignore the CID.
 
@@ -377,7 +395,7 @@ sections:
         expect_contains:
           - "404"
 
-  - title: "Download through the storage network"
+  - title: "Use the Package Downloader to download the package through the storage network"
     step: true
     steps:
       - title: "Load package_downloader"
@@ -394,9 +412,15 @@ sections:
           ./logos/bin/logoscore call package_downloader listRepositories
           ./logos/bin/logoscore call package_downloader setRepositoryEnabled \
             "$(./logos/bin/logoscore call package_downloader listRepositories | jq -er '.result[0].url')" false
+          ./logos/bin/logoscore call package_downloader listRepositories
         code_block: |
           logoscore call package_downloader listRepositories
           logoscore call package_downloader setRepositoryEnabled "<default url>" false
+          logoscore call package_downloader listRepositories
+        post_text: |
+          The default catalog is still listed, now disabled.
+        expect_contains:
+          - '"enabled":false'
 
       - title: "Add our catalogue"
         run: './logos/bin/logoscore call package_downloader addRepository "https://127.0.0.1:8443/logos-repo.json"'
@@ -415,23 +439,30 @@ sections:
 
       - title: "Download the package"
         text: |
+          The package `package_downloader`, previously uploaded to the Storage node
+          using the HTTP API to simulate a release publication, is now downloaded
+          using the Package Downloader through the Storage node.
+
           The empty strings mean "any": any version, any hash (version, rootHash).
+
+          The download path is saved to `path.txt`.
         run: |
           set -eu
           ./logos/bin/logoscore call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
             | tee download.json
+          cat download.json
           jq -er '.result.path' download.json > path.txt
           cat path.txt
         code_block: |
           logoscore call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
         check_file: "path.txt"
 
-      - title: "The file is downloaded from storage"
+      - title: "Verify the downloaded file exists"
         run: 'ls -l "$(cat path.txt)"'
         expect_contains:
           - "package_downloader"
 
-      - title: "The file is available on the Storage node"
+      - title: "Verify the file is available on the Storage node"
         run: './logos/bin/logoscore call storage_module exists "$(cat cid.txt)"'
         code_block: 'logoscore call storage_module exists "$(cat cid.txt)"'
         expect_contains:
