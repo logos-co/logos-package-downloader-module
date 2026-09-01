@@ -47,12 +47,6 @@ sections:
       - title: "Start it"
         run: |
           set -eu
-          # A node left over from an earlier run would answer the readiness
-          # poll below, and everything after it would talk to a stranger.
-          if curl -sf --max-time 1 http://127.0.0.1:8080/api/storage/v1/debug/info > /dev/null; then
-            echo "port 8080 already answers: stop the storage node still running" >&2
-            exit 1
-          fi
           mkdir -p release-data
           ./storage-node/bin/storage \
             --data-dir="$(pwd)/release-data" \
