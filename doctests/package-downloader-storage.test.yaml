@@ -218,9 +218,6 @@ sections:
           - "logos:"
 
       - title: "Check that the index advertises the CID"
-        text: |
-          The first source of the version must be the CID our own node handed
-          us at upload time.
         run: |
           jq -er --arg cid "logos:$(cat cid.txt)" \
             '.packages[0].versions[0].urls[0] == $cid' www/index.json
@@ -232,7 +229,7 @@ sections:
 
       - title: "Check that the HTTPS URL comes second"
         text: |
-          The fallback, used when the storage route is unavailable.
+          The fallback, used when CID not available or network does not match.
         run: |
           jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
             www/index.json
@@ -271,7 +268,7 @@ sections:
       - title: "The HTTPS fallback is a dead URL"
         text: |
           A dead URL, so that a successful download can only have come from the
-          storage network.
+          Storage network.
         run: |
           set -eu
           curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt \
