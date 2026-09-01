@@ -3,17 +3,16 @@ output: package-downloader-storage.md
 release: ""
 
 intro: |
-  The package downloader module can fetch packages over Logos Storage, if the
-  repository advertises a `logos:<cid>` in its catalog. This tutorial proves that
-  path end to end, with no dependency on the public network.
+  The package downloader module can fetch packages over Logos Storage if the
+  catalog's index advertises a `logos:<cid>`. This tutorial proves that path
+  end to end, with no dependency on the public network.
 
-what_you_build: "A release-like environment, to download a file over Logos Storage with the package downloader."
+what_you_build: "A release-like environment to download a file over Logos Storage with the package downloader."
 
 what_you_learn:
   - How a release publishes a package to a storage node
   - How a catalog advertises that package over two protocols in its `urls` entry
   - Why the repository's `network` must match the storage node's own
-  - How the storage route is used when the catalog advertises one
 
 prerequisites:
   - |
@@ -29,125 +28,13 @@ prerequisites:
   - "**`jq`**, **`openssl`** and **`python3`** on your `PATH`. Verify: `jq --version && openssl version && python3 --version`"
 
 sections:
-  - title: "Build the runtime and the package manager"
-    step: true
-    text: |
-      `logoscore` is both the Logos daemon and its client; `lgpm` installs
-      `.lgx` packages into a modules directory.
-    steps:
-      - title: "Build logoscore"
-        run: "nix build 'github:logos-co/logos-logoscore-cli' --out-link ./logos"
-        code_block: "nix build 'github:logos-co/logos-logoscore-cli' --out-link ./logos"
-        check_file: "logos/bin/logoscore"
-
-      - title: "Build lgpm"
-        run: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
-        code_block: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
-        check_file: "lgpm/bin/lgpm"
-
-  - title: "Install both modules"
-    step: true
-    text: |
-      The storage module is a dependency of the downloader, so we need to
-      install it, and then the downloader module.
-    steps:
-      - title: "Build the storage module"
-        run: "nix build 'github:logos-co/logos-storage-module/fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9#lgx' -o storage-lgx"
-        code_block: "nix build 'github:logos-co/logos-storage-module/fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9#lgx' -o storage-lgx"
-        extra_run:
-          run: "ls storage-lgx/*.lgx"
-
-      - title: "Build this downloader module"
-        run: |
-          set -eu
-          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
-        code_block: |
-          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
-        extra_run:
-          run: "ls downloader-lgx/*.lgx"
-
-      - title: "Install both packages"
-        run: |
-          set -eu
-          ./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file storage-lgx/*.lgx
-          ./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file downloader-lgx/*.lgx
-        code_block: |
-          lgpm --modules-dir ./modules --allow-unsigned install --file storage-lgx/*.lgx
-          lgpm --modules-dir ./modules --allow-unsigned install --file downloader-lgx/*.lgx
-        expect_contains:
-          - "Installed to:"
-
-      - title: "Confirm both are present"
-        run: "./lgpm/bin/lgpm --modules-dir ./modules list"
-        expect_contains:
-          - "storage_module"
-          - "package_downloader"
-
-  - title: "Serve a catalog over local HTTPS"
-    step: true
-    text: |
-      `addRepository` accepts `https://` URLs only, so we need to provide an
-      HTTPS environment.
-    steps:
-      - title: "Generate a certificate"
-        run: |
-          set -eu
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout localhost.key -out localhost.crt \
-            -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1"
-        code_block: |
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout localhost.key -out localhost.crt \
-            -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1"
-        check_file: "localhost.crt"
-
-      - title: "Write the server configuration"
-        text: |
-          Serve the `www` directory over HTTPS with our certificate.
-
-          `auto_https disable_redirects` to disable the HTTP to HTTPS
-          redirection, which would otherwise crash caddy on startup.
-
-          ```
-          enabling automatic HTTP->HTTPS redirects
-          listening on 127.0.0.1:80: bind: permission denied
-          ```
-        run: |
-          set -eu
-          cat > Caddyfile <<'EOF'
-          {
-              # Prevent errors:
-              # enabling automatic HTTP->HTTPS redirects
-              # listening on 127.0.0.1:80: bind: permission denied
-              auto_https disable_redirects
-              admin off
-          }
-
-          :8443 {
-              bind 127.0.0.1
-              tls localhost.crt localhost.key
-              root * www
-              file_server
-          }
-          EOF
-          cat Caddyfile
-        check_file: "Caddyfile"
-
-      - title: "Start the HTTPS server"
-        run: |
-          set -eu
-          mkdir -p www
-          nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
-          echo $! > caddy.pid
-          sleep 2
-        code_block: |
-          caddy run --config Caddyfile --adapter caddyfile &
-
   - title: "Simulate a release publication of Logos Storage package"
     step: true
     text: |
-      Release packages are published to a Logos Storage node over its HTTP API.
+      Release packages are published to a Logos Storage nodes over its HTTP API.
       The following steps reproduce that release process.
     steps:
-      - title: "Build the node"
+      - title: "Build the Storage node"
         run: |
           set -eu
           nix build 'git+https://github.com/logos-storage/logos-storage-nim?submodules=1#logos-storage-nim' \
@@ -185,6 +72,9 @@ sections:
           - "Storage node up"
 
       - title: "Read its SPR"
+        text: |
+          The Storage node's SPR (Storage Provider Record) will be used as bootstrap
+          node configuration for the package downloader.
         run: |
           set -eu
           curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
@@ -193,10 +83,18 @@ sections:
           curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
         check_file: "spr.txt"
 
+      - title: "Build the downloader package"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
+        code_block: |
+          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
+        extra_run:
+          run: "ls downloader-lgx/*.lgx"
+
       - title: "Upload the package over HTTP api"
         text: |
-          Upload the package downloader's own build to Logos Storage, the way a
-          release would.
+          Simulate a release by uploading the package downloader build to Logos Storage.
         run: |
           set -eu
 
@@ -215,18 +113,220 @@ sections:
             --data-binary @"$LGX" \
             http://127.0.0.1:8080/api/storage/v1/data > cid.txt
         check_file: "cid.txt"
-
-  - title: "Start the Storage Module (Package Downloader's dependency)"
+  - title: "Serve a catalog over local HTTPS"
     step: true
     text: |
-      The storage module will be a dependency of Basecamp and logoscore, running
+      `addRepository` accepts `https://` URLs only, so we need to provide an
+      HTTPS environment.
+    steps:
+      - title: "Generate a certificate"
+        run: |
+          set -eu
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout localhost.key -out localhost.crt \
+            -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1"
+        code_block: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout localhost.key -out localhost.crt \
+            -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1"
+        check_file: "localhost.crt"
+
+      - title: "Write the server configuration"
+        text: |
+          Serve the `www` directory over HTTPS with our certificate.
+        run: |
+          set -eu
+          cat > Caddyfile <<'EOF'
+          {
+              # Prevent errors:
+              # enabling automatic HTTP->HTTPS redirects
+              # listening on 127.0.0.1:80: bind: permission denied
+              auto_https disable_redirects
+              admin off
+          }
+
+          :8443 {
+              bind 127.0.0.1
+              tls localhost.crt localhost.key
+              root * www
+              file_server
+          }
+          EOF
+          cat Caddyfile
+        check_file: "Caddyfile"
+
+      - title: "Start the HTTPS server"
+        run: |
+          set -eu
+          mkdir -p www
+          nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
+          echo $! > caddy.pid
+          sleep 2
+        code_block: |
+          caddy run --config Caddyfile --adapter caddyfile &
+  - title: "Build the catalog that advertises the CID"
+    step: true
+    text: |
+      A catalog is two files:
+        1. `index.json`, which lists packages and their versions;
+        2. `logos-repo.json`, which describes the repository and points at that index.
+
+      A sidecar is a third file generated during the release process next to the `.lgx`
+      and carrying its CID.
+    steps:
+      - title: "Write the sidecar"
+        text: |
+          A minimal sidecar is needed to build the catalog index.
+        run: |
+          set -eu
+          cat > www/sidecar.json <<EOF
+          {
+            "sha256": "$(sha256sum downloader-lgx/*.lgx | cut -d' ' -f1)",
+            "cid": "$(cat cid.txt)"
+          }
+          EOF
+          cat www/sidecar.json
+        check_file: "www/sidecar.json"
+
+      - title: |
+          Build index.json
+        text: |
+          `index.json` holds the package metadata, including the CID and the HTTPS URL.
+        run: |
+          set -eu
+
+          nix build 'github:logos-co/logos-package#lgx' -o lgx
+
+          echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
+
+          # TODO: use master once the PR is merged
+          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/feat/add-storage-as-lgx-provider/index.py
+
+          PATH="$(pwd)/lgx/bin:$PATH" \
+          SSL_CERT_FILE="$(pwd)/localhost.crt" NIX_SSL_CERT_FILE="$(pwd)/localhost.crt" \
+            python3 index.py build urls.txt \
+              --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
+              --fetch none --no-icons -o www/index.json 2> index.log
+          jq . www/index.json
+          cat index.log
+        code_block: |
+          echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
+          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/main/index.py
+          nix build 'github:logos-co/logos-package#lgx' -o lgx
+          PATH="$(pwd)/lgx/bin:$PATH" python3 index.py build urls.txt \
+            --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
+            --fetch none --no-icons -o www/index.json
+        expect_contains:
+          - "logos:"
+
+      - title: "Check that the index advertises the CID"
+        text: |
+          The first source of the version must be the CID our own node handed
+          us at upload time.
+        run: |
+          jq -er --arg cid "logos:$(cat cid.txt)" \
+            '.packages[0].versions[0].urls[0] == $cid' www/index.json
+        code_block: |
+          jq -er --arg cid "logos:$(cat cid.txt)" \
+            '.packages[0].versions[0].urls[0] == $cid' www/index.json
+        expect_contains:
+          - "true"
+
+      - title: "Check that the HTTPS URL comes second"
+        text: |
+          The fallback, used when the storage route is unavailable.
+        run: |
+          jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
+            www/index.json
+        code_block: |
+          jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
+            www/index.json
+        expect_contains:
+          - "true"
+
+      - title: "Write logos-repo.json"
+        text: |
+          `logos-repo.json` tells the downloader where to fetch packages from.
+
+          `network` must equal the node's, otherwise the downloader will
+          ignore the CID.
+
+          Note: `logos.dev` is only checked against the network the storage
+          module reports, the preset's bootstrap nodes are overridden by the
+          manually `--bootstrap-node` option.
+        run: |
+          set -eu
+          cat > www/logos-repo.json <<EOF
+          {
+            "schemaVersion": 1,
+            "name": "doctest-catalog",
+            "displayName": "Doctest Catalog",
+            "description": "Local catalog served over HTTPS for this tutorial.",
+            "indexUrl": "https://127.0.0.1:8443/index.json",
+            "network": "logos.dev",
+            "trustedSigners": []
+          }
+          EOF
+          cat www/logos-repo.json
+        check_file: "www/logos-repo.json"
+
+      - title: "The HTTPS fallback is a dead URL"
+        text: |
+          A dead URL, so that a successful download can only have come from the
+          storage network.
+        run: |
+          set -eu
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt \
+            https://127.0.0.1:8443/package_downloader.lgx
+        expect_contains:
+          - "404"
+
+  - title: "Setup environment for Package Downloader"
+    step: true
+    text: |
+      The Package Downloader needs a logoscore daemon running to serve packages.
+      The Storage Module will be a dependency of Basecamp and logoscore, running
       by default. So we start the daemon and load it first, to recreate that
       environment.
+
+      `logoscore` is both the Logos daemon and its client; `lgpm` installs
+      `.lgx` packages into a modules directory.
     steps:
+      - title: "Build logoscore"
+        run: "nix build 'github:logos-co/logos-logoscore-cli' --out-link ./logos"
+        code_block: "nix build 'github:logos-co/logos-logoscore-cli' --out-link ./logos"
+        check_file: "logos/bin/logoscore"
+
+      - title: "Build lgpm"
+        run: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
+        code_block: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
+        check_file: "lgpm/bin/lgpm"
+
+      - title: "Install the downloader package"
+        run: |
+          set -eu
+          ./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file downloader-lgx/*.lgx
+          ./lgpm/bin/lgpm --modules-dir ./modules list
+        code_block: |
+          lgpm --modules-dir ./modules --allow-unsigned install --file downloader-lgx/*.lgx
+          lgpm --modules-dir ./modules list
+        expect_contains:
+          - "package_downloader"
+      - title: "Build and install it"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-storage-module/fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9#lgx' -o storage-lgx
+          ./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file storage-lgx/*.lgx
+          ./lgpm/bin/lgpm --modules-dir ./modules list
+        code_block: |
+          nix build 'github:logos-co/logos-storage-module#lgx' -o storage-lgx
+          lgpm --modules-dir ./modules --allow-unsigned install --file storage-lgx/*.lgx
+          lgpm --modules-dir ./modules list
+        expect_contains:
+          - "storage_module"
+
       - title: "Start the daemon"
         text: |
-          The catalog is fetched with libcurl, which refuses our self-signed
-          certificate unless it is told to trust it.
+          The catalog is fetched with libcurl, which needs our self-signed
+          certificate to trust it.
         run: "sh -c 'SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logos/bin/logoscore -D -m ./modules > logs.txt 2>&1 &'"
         code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logoscore -D -m ./modules > logs.txt &"
 
@@ -290,112 +390,21 @@ sections:
         expect_contains:
           - '"result":true'
 
+      - title: "Check the network the node reports"
+        text: |
+          The downloader compares this to the repository's `network`. They have
+          to be equal, or the CID is ignored and the HTTPS URL is used instead.
+        run: './logos/bin/logoscore call storage_module network'
+        code_block: 'logoscore call storage_module network'
+        expect_contains:
+          - "logos.dev"
+
       - title: "Ensure that the package does not exist on the Storage node"
         run: './logos/bin/logoscore call storage_module exists "$(cat cid.txt)"'
         code_block: 'logoscore call storage_module exists "$(cat cid.txt)"'
         expect_contains:
-          - "false"
-
-  - title: "Build the catalog that advertises the CID"
-    step: true
-    text: |
-      A catalog is two files:
-        `index.json`, which lists packages and their versions;
-        `logos-repo.json`, which describes the repository and points at that index.
-      A sidecar is a third file, sitting next to the `.lgx` and carrying its CID.
-    steps:
-      - title: "Write the sidecar"
-        text: |
-          A minimal sidecar is needed to build the catalog index.
-        run: |
-          set -eu
-          cat > www/sidecar.json <<EOF
-          {
-            "sha256": "$(sha256sum downloader-lgx/*.lgx | cut -d' ' -f1)",
-            "cid": "$(cat cid.txt)"
-          }
-          EOF
-          cat www/sidecar.json
-        check_file: "www/sidecar.json"
-
-      - title: |
-          Build index.json
-        text: |
-          `index.json` holds the package metadata, including the CID and the HTTPS URL.
-          We verify that it advertises the CID and the HTTPS URL.
-        run: |
-          set -eu
-
-          nix build 'github:logos-co/logos-package#lgx' -o lgx
-
-          echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
-
-          # TODO: use master once the PR is merged
-          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/feat/add-storage-as-lgx-provider/index.py
-
-          PATH="$(pwd)/lgx/bin:$PATH" \
-          SSL_CERT_FILE="$(pwd)/localhost.crt" NIX_SSL_CERT_FILE="$(pwd)/localhost.crt" \
-            python3 index.py build urls.txt \
-              --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
-              --fetch none --no-icons -o www/index.json 2> index.log
-          jq . www/index.json
-          # It downgrades a failed sidecar fetch to a warning and carries on
-          # without the CID, so its stderr is worth keeping in sight — and last,
-          # where the runner will not truncate it.
-          cat index.log
-          jq -er --arg cid "logos:$(cat cid.txt)" \
-            '.packages[0].versions[0].urls[0] == $cid' www/index.json
-          jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
-            www/index.json
-        code_block: |
-          echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
-          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/main/index.py
-          nix build 'github:logos-co/logos-package#lgx' -o lgx
-          PATH="$(pwd)/lgx/bin:$PATH" python3 index.py build urls.txt \
-            --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
-            --fetch none --no-icons -o www/index.json
-        expect_contains:
-          - "logos:"
-          - "true"
-
-      - title: "Write logos-repo.json"
-        text: |
-          `logos-repo.json` tells the downloader where to fetch packages from.
-
-          `network` must equal the node's, otherwise the downloader will
-          ignore the CID.
-
-          Reminder: `logos.dev` is only checked against the network the storage
-          module reports, the preset's bootstrap nodes are overridden by the
-          entry we provide by hand.
-        run: |
-          set -eu
-          cat > www/logos-repo.json <<EOF
-          {
-            "schemaVersion": 1,
-            "name": "doctest-catalog",
-            "displayName": "Doctest Catalog",
-            "description": "Local catalog served over HTTPS for this tutorial.",
-            "indexUrl": "https://127.0.0.1:8443/index.json",
-            "network": "logos.dev",
-            "trustedSigners": []
-          }
-          EOF
-          cat www/logos-repo.json
-        check_file: "www/logos-repo.json"
-
-      - title: "The HTTPS fallback is a dead URL"
-        text: |
-          A dead URL, so that a successful download can only have come from the
-          storage network.
-        run: |
-          set -eu
-          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt \
-            https://127.0.0.1:8443/package_downloader.lgx
-        expect_contains:
-          - "404"
-
-  - title: "Use the Package Downloader to download the package through the storage network"
+          - '"value":false'
+  - title: "Download the package through the Storage network"
     step: true
     steps:
       - title: "Load package_downloader"
@@ -466,8 +475,7 @@ sections:
         run: './logos/bin/logoscore call storage_module exists "$(cat cid.txt)"'
         code_block: 'logoscore call storage_module exists "$(cat cid.txt)"'
         expect_contains:
-          - "true"
-
+          - '"value":true'
   - title: "Shut down"
     step: true
     steps:
