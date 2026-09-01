@@ -244,28 +244,26 @@ sections:
 
           nix build 'github:logos-co/logos-package#lgx' -o lgx
 
-          echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
+          # Write the local URL and the package path to `urls.txt` to be used by `index.py`
+          echo "https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
 
           # TODO: use master once the PR is merged
           curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/feat/add-storage-as-lgx-provider/index.py
 
+          # Build the index.json by consuming a file containing the local URL (required).
           PATH="$(pwd)/lgx/bin:$PATH" \
           SSL_CERT_FILE="$(pwd)/localhost.crt" NIX_SSL_CERT_FILE="$(pwd)/localhost.crt" \
-            python3 index.py build urls.txt \
-              --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
-              --fetch none --no-icons -o www/index.json 2> index.log
+            python3 index.py build urls.txt --no-icons -o www/index.json 2> index.log
 
-          # Expect logos: on output
+          # Expect logos: on output (expect_contains check)
           jq . www/index.json
 
           cat index.log
         code_block: |
-          echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
+          echo "https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
           curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/main/index.py
           nix build 'github:logos-co/logos-package#lgx' -o lgx
-          PATH="$(pwd)/lgx/bin:$PATH" python3 index.py build urls.txt \
-            --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
-            --fetch none --no-icons -o www/index.json
+          PATH="$(pwd)/lgx/bin:$PATH" python3 index.py build urls.txt --no-icons -o www/index.json
         expect_contains:
           - "logos:"
 
@@ -325,8 +323,7 @@ sections:
           Storage network.
         run: |
           set -eu
-          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt \
-            https://127.0.0.1:8443/package_downloader.lgx
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt https://127.0.0.1:8443/package_downloader.lgx
         expect_contains:
           - "404"
 
