@@ -47,21 +47,48 @@ sections:
       - title: "Start it"
         run: |
           set -eu
+
           mkdir -p release-data
+
           ./storage-node/bin/storage \
             --data-dir="$(pwd)/release-data" \
-            --api-port=8080 --listen-port=8081 --disc-port=9091 \
-            --nat=extip:127.0.0.1 --no-bootstrap-node \
-            --log-level=DEBUG --log-file="$(pwd)/release-data/storage.log" \
+            --api-port=8080 \
+            --listen-port=8081 \
+            --disc-port=9091 \
+            --nat=extip:127.0.0.1 \
+            --no-bootstrap-node \
+            --log-level=DEBUG \
+            --log-file="$(pwd)/release-data/storage.log" \
             > storage.log 2>&1 &
+
+          # Keep the process ID so we can stop it later
           echo $! > node.pid
-          until curl -sf http://127.0.0.1:8080/api/storage/v1/debug/info \
-            | jq -e '.providerRecord != null' > /dev/null; do sleep 1; done
+
+          # Make sure the node is up and running
+          ready=false
+          for _ in $(seq 60); do
+            # Redirect output to /dev/null to get only the success not the output
+            if curl -sf http://127.0.0.1:8080/api/storage/v1/debug/info | jq -e .providerRecord > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+
+          # If the node is not ready, print the log to debug
+          if ! $ready; then
+            cat storage.log
+            exit 1
+          fi
+
           echo "Storage node up"
         code_block: |
           storage --data-dir=./release-data \
-            --api-port=8080 --listen-port=8081 --disc-port=9091 \
-            --nat=extip:127.0.0.1 --no-bootstrap-node &
+            --api-port=8080 \
+            --listen-port=8081 \
+            --disc-port=9091 \
+            --nat=extip:127.0.0.1 \
+            --no-bootstrap-node &
         expect_contains:
           - "Storage node up"
 
@@ -107,6 +134,7 @@ sections:
             --data-binary @"$LGX" \
             http://127.0.0.1:8080/api/storage/v1/data > cid.txt
         check_file: "cid.txt"
+
   - title: "Serve a catalog over local HTTPS"
     step: true
     text: |
@@ -128,6 +156,7 @@ sections:
           Serve the `www` directory over HTTPS with our certificate.
         run: |
           set -eu
+
           cat > Caddyfile <<'EOF'
           {
               # Prevent errors:
@@ -144,20 +173,36 @@ sections:
               file_server
           }
           EOF
+
           cat Caddyfile
         check_file: "Caddyfile"
 
       - title: "Start the HTTPS server"
         run: |
           set -eu
+
           mkdir -p www
           nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
+
+          # Keep the process ID so we can stop it later
           echo $! > caddy.pid
+
+          # Make sure the server is up and running
+          ready=false
           for _ in $(seq 60); do
-            curl -sk -o /dev/null https://127.0.0.1:8443/ && break
+            if curl -sk -o /dev/null https://127.0.0.1:8443/; then
+              ready=true
+              break
+            fi
             sleep 1
           done
-          curl -sk -o /dev/null https://127.0.0.1:8443/ || { cat caddy.log; exit 1; }
+
+          # If the server is not ready, print the log to debug
+          if ! $ready; then
+            cat caddy.log
+            exit 1
+          fi
+
           echo "server up"
         code_block: |
           caddy run --config Caddyfile --adapter caddyfile &
@@ -179,12 +224,14 @@ sections:
           A minimal sidecar is needed to build the catalog index.
         run: |
           set -eu
+
           cat > www/sidecar.json <<EOF
           {
             "sha256": "$(sha256sum downloader-lgx/*.lgx | cut -d' ' -f1)",
             "cid": "$(cat cid.txt)"
           }
           EOF
+
           cat www/sidecar.json
         check_file: "www/sidecar.json"
 
@@ -207,7 +254,10 @@ sections:
             python3 index.py build urls.txt \
               --with-local https://127.0.0.1:8443/package_downloader.lgx "$(ls downloader-lgx/*.lgx)" \
               --fetch none --no-icons -o www/index.json 2> index.log
+
+          # Expect logos: on output
           jq . www/index.json
+
           cat index.log
         code_block: |
           echo "https://127.0.0.1:8443/package_downloader.lgx" > urls.txt
@@ -253,6 +303,7 @@ sections:
           `--bootstrap-node` option we pass by hand.
         run: |
           set -eu
+
           cat > www/logos-repo.json <<EOF
           {
             "schemaVersion": 1,
@@ -264,6 +315,7 @@ sections:
             "trustedSigners": []
           }
           EOF
+
           cat www/logos-repo.json
         check_file: "www/logos-repo.json"
 
@@ -341,7 +393,9 @@ sections:
           path that compares network names is exercised.
         run: |
           set -eu
+
           mkdir -p "$(pwd)/storage-data"
+
           cat > config.json <<EOF
           {
               "data-dir": "$(pwd)/storage-data",
@@ -408,9 +462,14 @@ sections:
           The default catalog is always present, so we disable it to use ours.
         run: |
           set -eu
+
           ./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories
-          ./logosctl/bin/logosctl --config-dir ./session call package_downloader setRepositoryEnabled \
-            "$(./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories | jq -er '.result[0].url')" false
+
+          # Get the URL of the default repository
+          url=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories \
+            | jq -er '.result[0].url')
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader setRepositoryEnabled "$url" false
           ./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories
         code_block: |
           logosctl call package_downloader listRepositories
@@ -447,10 +506,16 @@ sections:
           The download path is saved to `path.txt`.
         run: |
           set -eu
+
+          # Download the package and save the result to `download.json`
           ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
-            | tee download.json
+            > download.json
+
           cat download.json
+
+          # Get the download path from `download.json` and save it to `path.txt` to reuse later
           jq -er '.result.path' download.json > path.txt
+
           cat path.txt
         code_block: |
           logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
@@ -466,6 +531,7 @@ sections:
         code_block: 'logosctl call storage_module exists "$(cat cid.txt)"'
         expect_contains:
           - '"value":true'
+
   - title: "Shut down"
     step: true
     steps:
