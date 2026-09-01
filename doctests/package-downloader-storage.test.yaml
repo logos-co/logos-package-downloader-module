@@ -31,7 +31,7 @@ sections:
   - title: "Simulate a release publication of Logos Storage package"
     step: true
     text: |
-      Release packages are published to a Logos Storage nodes over its HTTP API.
+      Release packages are published to Logos Storage nodes over their HTTP API.
       The following steps reproduce that release process.
     steps:
       - title: "Build the Storage node"
@@ -251,7 +251,7 @@ sections:
 
           Note: `logos.dev` is only checked against the network the storage
           module reports, the preset's bootstrap nodes are overridden by the
-          manually `--bootstrap-node` option.
+          `--bootstrap-node` option we pass by hand.
         run: |
           set -eu
           cat > www/logos-repo.json <<EOF
@@ -325,8 +325,8 @@ sections:
 
       - title: "Start the daemon"
         text: |
-          The catalog is fetched with libcurl, which needs our self-signed
-          certificate to trust it.
+          The catalog is fetched with libcurl, which needs to be told to trust
+          our self-signed certificate.
         run: "sh -c 'SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logos/bin/logoscore -D -m ./modules > logs.txt 2>&1 &'"
         code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logoscore -D -m ./modules > logs.txt &"
 
@@ -404,6 +404,7 @@ sections:
         code_block: 'logoscore call storage_module exists "$(cat cid.txt)"'
         expect_contains:
           - '"value":false'
+
   - title: "Download the package through the Storage network"
     step: true
     steps:
