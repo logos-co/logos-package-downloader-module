@@ -147,12 +147,6 @@ void PackageDownloaderImpl::onContextReady() {
     // modules() is generated using the metadata.json dependencies.
     auto fetcher = makeStorageFetcher(modules());
     m_lib->setStorageFetcher(fetcher);
-
-    // Set network string for the downloader lib.
-    // This will be used by the Storage Fetcher to determine
-    // if the network in the repo file matches the network of the downloader lib.
-    auto network = makeNetwork(modules());
-    m_lib->setNetwork(network);
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
@@ -195,6 +189,11 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
                                                 const std::string& rootHash) {
+    // Read the network from the Storage module.
+    auto network = makeNetwork(modules());
+
+    m_lib->setNetwork(network);
+
     return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
                           [this](const std::string& name, std::uint64_t received,
                                  std::uint64_t total) {
@@ -208,6 +207,11 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     // (below) so one bad entry never takes down the whole batch.
     // `resolveDependencies` reuses this same pattern.
     LogosList results = LogosList::array();
+
+    // Read the network from the Storage module.
+    auto network = makeNetwork(modules());
+
+    m_lib->setNetwork(network);
 
     // Extract the requested top-level names up front so a failure that
     // throws *before* resolveDependenciesJson emits any per-entry output
