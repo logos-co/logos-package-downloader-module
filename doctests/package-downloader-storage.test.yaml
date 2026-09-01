@@ -159,9 +159,17 @@ sections:
           mkdir -p www
           nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
           echo $! > caddy.pid
-          sleep 2
+          for _ in $(seq 60); do
+            curl -sk -o /dev/null https://127.0.0.1:8443/ && break
+            sleep 1
+          done
+          curl -sk -o /dev/null https://127.0.0.1:8443/ || { cat caddy.log; exit 1; }
+          echo "server up"
         code_block: |
           caddy run --config Caddyfile --adapter caddyfile &
+        expect_contains:
+          - "server up"
+
   - title: "Build the catalog that advertises the CID"
     step: true
     text: |
