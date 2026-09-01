@@ -3,7 +3,7 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    logos-package-downloader.url = "github:logos-co/logos-package-downloader";
+    logos-package-downloader.url = "github:logos-co/logos-package-downloader?rev=6b9eaa8903ef831453e780e88d6c4cfe3bb8bb62";
     storage_module.url = "github:logos-co/logos-storage-module?rev=fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9";
   };
 

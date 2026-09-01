@@ -29084,16 +29084,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1788345837,
-        "narHash": "sha256-nInsi0fMiivkB+Bs88IkpA7+l7pt6ft6Dsy5SQH9tX8=",
+        "lastModified": 1788246717,
+        "narHash": "sha256-qffD2IBEejc+FuIGB7mvW86KzwM60SDC6b/5DeSGhRQ=",
         "owner": "logos-co",
         "repo": "logos-package-downloader",
-        "rev": "0f4c2300757f1ffa4b09f07cb1e4451b0a380688",
+        "rev": "6b9eaa8903ef831453e780e88d6c4cfe3bb8bb62",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
         "repo": "logos-package-downloader",
+        "rev": "6b9eaa8903ef831453e780e88d6c4cfe3bb8bb62",
         "type": "github"
       }
     },
