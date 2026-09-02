@@ -79,8 +79,18 @@ std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOr
                                                   std::string& /*errorMessage*/,
                                                   const std::string& /*version*/,
                                                   const std::string& /*rootHash*/,
-                                                  const std::string& /*outputDir*/) {
+                                                  const std::string& /*outputDir*/,
+                                                  const ProgressFn& onProgress) {
     LOGOS_CMOCK_RECORD("downloadPackage");
+    // Replay a fixed two-sample transfer so tests can assert the impl turns
+    // lib progress into `downloadProgress` events, tagged with the right
+    // package name. The real lib rate-limits before this point, so a mock
+    // that emitted a realistic per-chunk storm would be modelling the wrong
+    // contract — these are the samples that already survived the throttle.
+    if (onProgress) {
+        onProgress(0, 4096);
+        onProgress(4096, 4096);
+    }
     return mockStr("downloadPackage", "");   // empty path == failure
 }
 

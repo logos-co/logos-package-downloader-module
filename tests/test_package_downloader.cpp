@@ -231,3 +231,71 @@ LOGOS_TEST(downloadResolvedDependencies_malformed_output_attributes_error_per_re
     LOGOS_ASSERT_EQ(results[1]["name"].get<std::string>(), std::string("b"));
     LOGOS_ASSERT_CONTAINS(results[0]["error"].get<std::string>(), std::string("downloader exception"));
 }
+
+// ── downloadProgress events ──────────────────────────────────────────────
+//
+// The mocked library replays a two-sample transfer (0/4096 then 4096/4096)
+// for every downloadPackage call, standing in for what the real lib emits
+// after its own rate limiting. These assert the bridge turns those samples
+// into correctly-attributed `downloadProgress` events.
+
+LOGOS_TEST(downloadPinned_emits_progress_events_for_the_package) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
+    PackageDownloaderImpl impl;
+
+    impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+
+    auto progress = events.all("downloadProgress");
+    LOGOS_ASSERT_EQ(progress.size(), static_cast<size_t>(2));
+    LOGOS_ASSERT_EQ(progress[0].data, std::string("wallet_module:0/4096"));
+    LOGOS_ASSERT_EQ(progress[1].data, std::string("wallet_module:4096/4096"));
+}
+
+// A failed download still reports the bytes that did move — the UI needs
+// them to keep the bar honest right up to the point of failure.
+LOGOS_TEST(downloadPinned_emits_progress_even_when_the_download_fails) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    // Unset downloadPackage → "" → empty path → failure.
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.downloadPinned("", "wallet_module", "", "");
+    LOGOS_ASSERT_TRUE(r.contains("error"));
+    LOGOS_ASSERT_TRUE(events.has("downloadProgress"));
+}
+
+// Each package in a resolved plan reports under its OWN name, so the UI can
+// attribute bytes to the right row while installing a dependency chain.
+LOGOS_TEST(downloadResolvedDependencies_attributes_progress_per_package) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("resolveDependenciesJson").returns(
+        R"([{"name":"chat_module","version":"2.0.0","rootHash":"h2","repositoryUrl":"r"},)"
+        R"({"name":"waku_module","version":"1.0.0","rootHash":"h1","repositoryUrl":"r"}])");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/pkg.lgx");
+    PackageDownloaderImpl impl;
+
+    impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
+
+    auto progress = events.all("downloadProgress");
+    LOGOS_ASSERT_EQ(progress.size(), static_cast<size_t>(4));
+    LOGOS_ASSERT_EQ(progress[0].data, std::string("chat_module:0/4096"));
+    LOGOS_ASSERT_EQ(progress[1].data, std::string("chat_module:4096/4096"));
+    LOGOS_ASSERT_EQ(progress[2].data, std::string("waku_module:0/4096"));
+    LOGOS_ASSERT_EQ(progress[3].data, std::string("waku_module:4096/4096"));
+}
+
+// A resolver error short-circuits before any transfer, so there is nothing
+// to report — no phantom progress for a package that never downloaded.
+LOGOS_TEST(downloadResolvedDependencies_emits_no_progress_when_resolution_fails) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("resolveDependenciesJson").returns(
+        R"([{"error":"no candidate matches 'chat_module'"}])");
+    PackageDownloaderImpl impl;
+
+    impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
+    LOGOS_ASSERT_FALSE(events.has("downloadProgress"));
+}

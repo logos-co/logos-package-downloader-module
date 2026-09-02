@@ -12,9 +12,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <utility>   // std::move
 #include <vector>
@@ -51,6 +53,12 @@ LogosMap makeResult(const std::string& err) {
     return r;
 }
 
+// Where a download's byte counts go. Empty means "report nothing", and the
+// lib then skips curl's progress machinery entirely.
+using ProgressSink = std::function<void(const std::string& packageName,
+                                        std::uint64_t received,
+                                        std::uint64_t total)>;
+
 // Single-shot download with full (repo, version, hash) pinning. Used by
 // `downloadPinned` and `downloadResolvedDependencies` below. Kept as a
 // free function rather than a method so it can be reused without the
@@ -59,13 +67,21 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
                         const std::string& repoUrlOrName,
                         const std::string& packageName,
                         const std::string& version,
-                        const std::string& rootHash) {
+                        const std::string& rootHash,
+                        const ProgressSink& onProgress = {}) {
     LogosMap result = LogosMap::object();
     result["name"] = packageName;
 
+    lgpd::ProgressFn progressFn;
+    if (onProgress) {
+        progressFn = [&](std::uint64_t received, std::uint64_t total) {
+            onProgress(packageName, received, total);
+        };
+    }
+
     std::string err;
-    std::string path =
-        lib->downloadPackage(repoUrlOrName, packageName, err, version, rootHash);
+    std::string path = lib->downloadPackage(repoUrlOrName, packageName, err,
+                                            version, rootHash, "", progressFn);
 
     if (path.empty()) {
         std::string msg = std::string("download failed for '") + packageName + "'";
@@ -168,7 +184,11 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
                                                 const std::string& rootHash) {
-    return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash);
+    return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
+                          [this](const std::string& name, std::uint64_t received,
+                                 std::uint64_t total) {
+                              downloadProgress(name, received, total);
+                          });
 }
 
 LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson) {
@@ -245,7 +265,12 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
             std::string version  = entry.value("version", "");
             std::string rootHash = entry.value("rootHash", "");
             std::string repoUrl  = entry.value("repositoryUrl", "");
-            results.push_back(pinnedDownload(m_lib, repoUrl, name, version, rootHash));
+            results.push_back(pinnedDownload(
+                m_lib, repoUrl, name, version, rootHash,
+                [this](const std::string& pkg, std::uint64_t received,
+                       std::uint64_t total) {
+                    downloadProgress(pkg, received, total);
+                }));
         }
     } catch (const std::exception& ex) {
         pushError(std::string("downloader exception: ") + ex.what());
