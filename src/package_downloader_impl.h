@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <logos_json.h>
@@ -72,8 +73,21 @@ public:
     // catalogChanged fires on success from addRepository, removeRepository,
     // and setRepositoryEnabled — Subscribers re-fetch via
     // listRepositories() / getCatalog().
+    //
+    // downloadProgress fires per package while its bytes are on the wire, in
+    // install order, already rate-limited by the lib. `total` is 0 when
+    // neither the transport nor the catalog knows the size — render that
+    // indeterminate, never divide by it. Covers the TRANSFER ONLY:
+    // verification and installation follow the last sample, so
+    // received == total means "downloaded", not "done".
+    //
+    // Requires concurrency:"multi" (metadata.json). A single-threaded module
+    // holds the QtRO source thread for the whole download, and ModuleProxy
+    // always QUEUES event emission onto it, so every sample would land in one
+    // burst at the end. Don't revert that setting without removing this event.
 logos_events:
     void catalogChanged();
+    void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total);
 
 protected:
     // Fires once, after the framework has populated the LogosModuleContext

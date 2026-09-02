@@ -13,9 +13,16 @@
 // helpers, etc.). Keep it in sync with the methods invoked in
 // src/package_downloader_impl.cpp.
 
+#include <cstdint>
+#include <functional>
 #include <string>
 
 namespace lgpd {
+
+/// Mirrors the real header's progress sink. The lib rate-limits samples
+/// before they reach this callback, so the impl forwards each one straight
+/// to a `downloadProgress` event.
+using ProgressFn = std::function<void(std::uint64_t received, std::uint64_t total)>;
 
 class RepositoryRegistry {
 public:
@@ -47,7 +54,8 @@ public:
                                 std::string& errorMessage,
                                 const std::string& version = "",
                                 const std::string& rootHash = "",
-                                const std::string& outputDir = "");
+                                const std::string& outputDir = "",
+                                const ProgressFn& onProgress = {});
 
     std::string resolveDependenciesJson(const std::string& dependenciesJson,
                                         const std::string& installedPackagesJson = "");
