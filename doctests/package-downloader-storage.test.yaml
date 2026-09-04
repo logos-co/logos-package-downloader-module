@@ -352,7 +352,7 @@ sections:
       - title: "Build and install the storage module"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-storage-module/fac9a7a3eb5b9cdf58c875ef9b5d16d2bb71c5e9#lgx' -o storage-lgx
+          nix build 'github:logos-co/logos-storage-module/30ade568b46d66e5aff28d917f079a84388f6a4f#lgx' -o storage-lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules list
         code_block: |
@@ -503,6 +503,9 @@ sections:
             --event downloadProgress > progress.txt 2>&1 &
 
           echo $! > watch.pid
+
+          # The subscription has to reach the daemon before the download starts.
+          sleep 2
         code_block: |
           logosctl --json watch package_downloader --event downloadProgress > progress.txt &
         check_file: "watch.pid"
@@ -548,6 +551,8 @@ sections:
           set -eu
 
           kill "$(cat watch.pid)"
+
+          cat progress.txt
 
           tail -n 1 progress.txt | jq -e '.data.arg1 == .data.arg2 and .data.arg2 > 0'
         code_block: |
