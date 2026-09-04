@@ -36,7 +36,9 @@ const StorageFetcher::OnStorageDownloadProgress unusedProgress =
     [](std::function<void(const std::string&)>) { return true; };
 
 const StorageFetcher::DownloadCancel unusedCancel =
-    [](const std::string&) { return std::string(); };
+    [](const std::string&) {
+        return std::string();
+    };
 
 } // namespace
 
@@ -174,7 +176,9 @@ LOGOS_TEST(getToFile_refuses_a_cid_already_in_progress) {
 
 LOGOS_TEST(getToFile_times_out_when_no_event_arrives) {
     StorageFetcher::DownloadToUrl downloadToUrl =
-        [](const std::string&, const std::string&) { return std::string(); };
+        [](const std::string&, const std::string&) {
+            return std::string();
+        };
 
     const std::chrono::milliseconds downloadTimeout(50);
 
@@ -188,7 +192,9 @@ LOGOS_TEST(getToFile_times_out_when_no_event_arrives) {
 
 LOGOS_TEST(getToFile_is_cancelled_on_timeout) {
     StorageFetcher::DownloadToUrl downloadToUrl =
-        [](const std::string&, const std::string&) { return std::string(); };
+        [](const std::string&, const std::string&) {
+            return std::string();
+        };
 
     std::string cancelledCid;
 

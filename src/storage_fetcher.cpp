@@ -96,13 +96,19 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
     }
 
     if (done.wait_for(m_downloadTimeout) != std::future_status::ready) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        bool dropped = false;
+        {
+            // Get a mutex for m_pending
+            std::lock_guard<std::mutex> lock(m_mutex);
 
-        // We double check to make sure that the download is still pending and
-        // wasn't completed while we were waiting for the lock.
-        if (m_pending.count(cid) > 0) {
-            m_pending.erase(cid);
+            // We double check to make sure that the download is still pending and
+            // wasn't completed while we were waiting for the lock.
+            dropped = m_pending.erase(cid) > 0;
 
+            // mutex is released here when lock goes out of scope
+        }
+
+        if (dropped) {
             std::string error = "timed out waiting for the download of " + cid;
 
             if (std::string cancelError = m_downloadCancel(cid); !cancelError.empty()) {
