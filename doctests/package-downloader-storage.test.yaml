@@ -499,15 +499,17 @@ sections:
         run: |
           set -eu
 
+          # No --event filter: capture every event the module emits, so the
+          # report shows what actually came through.
           ./logosctl/bin/logosctl --config-dir ./session --json watch package_downloader \
-            --event downloadProgress > progress.txt 2>&1 &
+            > progress.txt 2>&1 &
 
           echo $! > watch.pid
 
           # The subscription has to reach the daemon before the download starts.
           sleep 2
         code_block: |
-          logosctl --json watch package_downloader --event downloadProgress > progress.txt &
+          logosctl --json watch package_downloader > progress.txt &
         check_file: "watch.pid"
 
       - title: "Download the package"
@@ -554,9 +556,14 @@ sections:
 
           cat progress.txt
 
-          tail -n 1 progress.txt | jq -e '.data.arg1 == .data.arg2 and .data.arg2 > 0'
+          # The daemon reports a refused subscription here, not in progress.txt.
+          cat logs.txt
+
+          jq -es 'map(select(.event == "downloadProgress")) | last
+                  | .data.arg1 == .data.arg2 and .data.arg2 > 0' progress.txt
         code_block: |
-          tail -n 1 progress.txt | jq -e '.data.arg1 == .data.arg2 and .data.arg2 > 0'
+          jq -es 'map(select(.event == "downloadProgress")) | last
+                  | .data.arg1 == .data.arg2 and .data.arg2 > 0' progress.txt
         expect_contains:
           - "true"
 
