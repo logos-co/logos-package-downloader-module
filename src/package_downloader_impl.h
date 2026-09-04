@@ -99,5 +99,7 @@ protected:
     void onContextReady() override;
 
 private:
+    std::string storageNetwork() const;
+
     lgpd::PackageDownloaderLib* m_lib;
 };

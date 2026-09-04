@@ -8,7 +8,7 @@
     "interface": "universal",
     "category": "management",
     "main": "package_downloader_plugin",
-    "dependencies": [],
+    "dependencies": ["storage_module"],
     "concurrency": "multi",
     "include": [
         "libpackage_downloader_lib.so",

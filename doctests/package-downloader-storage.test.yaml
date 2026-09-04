@@ -1,0 +1,591 @@
+name: "Downloading a Package Over Logos Storage"
+output: package-downloader-storage.md
+release: ""
+
+intro: |
+  The package downloader module can fetch packages over Logos Storage if the
+  catalog's index advertises a `logos:<cid>`. This tutorial proves that path
+  end to end, with no dependency on the public network.
+
+what_you_build: "A release-like environment to download a file over Logos Storage with the package downloader."
+
+what_you_learn:
+  - How a release publishes a package to a storage node
+  - How a catalog advertises that package over two protocols in its `urls` entry
+  - How to follow a download's progress with `logosctl watch`
+  - Why the repository's `network` must match the storage node's own
+
+prerequisites:
+  - |
+    **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
+
+    ```bash
+    mkdir -p ~/.config/nix
+    echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+    ```
+
+    Verify: `nix flake --help >/dev/null 2>&1 && echo "Flakes enabled"`
+  - "**A Linux or macOS machine.**"
+  - "**`jq`**, **`openssl`** and **`python3`** on your `PATH`. Verify: `jq --version && openssl version && python3 --version`"
+
+sections:
+  - title: "Simulate a release publication of Logos Storage package"
+    step: true
+    text: |
+      Release packages are published to Logos Storage nodes over their HTTP API.
+      The following steps reproduce that release process.
+    steps:
+      - title: "Build the Storage node"
+        run: |
+          set -eu
+          nix build 'git+https://github.com/logos-storage/logos-storage-nim?submodules=1#logos-storage-nim' \
+            -o storage-node
+        code_block: |
+          nix build 'git+https://github.com/logos-storage/logos-storage-nim?submodules=1#logos-storage-nim' \
+            -o storage-node
+        check_file: "storage-node/bin/storage"
+
+      - title: "Start it"
+        run: |
+          set -eu
+
+          mkdir -p release-data
+
+          ./storage-node/bin/storage \
+            --data-dir="$(pwd)/release-data" \
+            --api-port=8080 \
+            --listen-port=8081 \
+            --disc-port=9091 \
+            --nat=extip:127.0.0.1 \
+            --no-bootstrap-node \
+            --log-level=DEBUG \
+            --log-file="$(pwd)/release-data/storage.log" \
+            > storage.log 2>&1 &
+
+          # Keep the process ID so we can stop it later
+          echo $! > node.pid
+
+          # Make sure the node is up and running
+          ready=false
+          for _ in $(seq 60); do
+            # Redirect output to /dev/null to get only the success not the output
+            if curl -sf http://127.0.0.1:8080/api/storage/v1/debug/info | jq -e .providerRecord > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+
+          # If the node is not ready, print the log to debug
+          if ! $ready; then
+            cat storage.log
+            exit 1
+          fi
+
+          echo "Storage node up"
+        code_block: |
+          storage --data-dir=./release-data \
+            --api-port=8080 \
+            --listen-port=8081 \
+            --disc-port=9091 \
+            --nat=extip:127.0.0.1 \
+            --no-bootstrap-node &
+        expect_contains:
+          - "Storage node up"
+
+      - title: "Read its SPR"
+        text: |
+          The Storage node's SPR (Storage Provider Record) will be used as bootstrap
+          node configuration for the package downloader.
+        run: |
+          set -eu
+          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
+          cat spr.txt
+        code_block: |
+          curl -sS -H 'Accept: text/plain' http://127.0.0.1:8080/api/storage/v1/spr > spr.txt
+        check_file: "spr.txt"
+
+      - title: "Build the downloader package"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
+        code_block: |
+          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
+        extra_run:
+          run: "ls downloader-lgx/*.lgx"
+
+      - title: "Upload the package over HTTP api"
+        text: |
+          Simulate a release by uploading the package downloader build to Logos Storage.
+        run: |
+          set -eu
+
+          LGX=$(ls downloader-lgx/*.lgx)
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/octet-stream' \
+            -H "Content-Disposition: attachment; filename=\"$(basename "$LGX")\"" \
+            --data-binary @"$LGX" \
+            http://127.0.0.1:8080/api/storage/v1/data > cid.txt
+
+          cat cid.txt
+        code_block: |
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/octet-stream' \
+            -H "Content-Disposition: attachment; filename=\"$(basename "$LGX")\"" \
+            --data-binary @"$LGX" \
+            http://127.0.0.1:8080/api/storage/v1/data > cid.txt
+        check_file: "cid.txt"
+
+  - title: "Serve a catalog over local HTTPS"
+    step: true
+    text: |
+      `addRepository` accepts `https://` URLs only, so we need to provide an
+      HTTPS environment.
+    steps:
+      - title: "Generate a certificate"
+        run: |
+          set -eu
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout localhost.key -out localhost.crt \
+            -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1"
+        code_block: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout localhost.key -out localhost.crt \
+            -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1"
+        check_file: "localhost.crt"
+
+      - title: "Write the server configuration"
+        text: |
+          Serve the `www` directory over HTTPS with our certificate.
+        run: |
+          set -eu
+
+          cat > Caddyfile <<'EOF'
+          {
+              # Prevent errors:
+              # enabling automatic HTTP->HTTPS redirects
+              # listening on 127.0.0.1:80: bind: permission denied
+              auto_https off
+              admin off
+          }
+
+          :8443 {
+              bind 127.0.0.1
+              tls localhost.crt localhost.key
+              root * www
+              file_server
+          }
+          EOF
+
+          cat Caddyfile
+        check_file: "Caddyfile"
+
+      - title: "Start the HTTPS server"
+        run: |
+          set -eu
+
+          mkdir -p www
+          nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
+
+          # Keep the process ID so we can stop it later
+          echo $! > caddy.pid
+
+          # Make sure the server is up and running
+          ready=false
+          for _ in $(seq 60); do
+            if curl -sk -o /dev/null https://127.0.0.1:8443/; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+
+          # If the server is not ready, print the log to debug
+          if ! $ready; then
+            cat caddy.log
+            exit 1
+          fi
+
+          echo "server up"
+        code_block: |
+          caddy run --config Caddyfile --adapter caddyfile &
+        expect_contains:
+          - "server up"
+
+  - title: "Build the catalog that advertises the CID"
+    step: true
+    text: |
+      A catalog is two files:
+        1. `index.json`, which lists packages and their versions;
+        2. `logos-repo.json`, which describes the repository and points at that index.
+
+      A sidecar is a third file generated during the release process next to the `.lgx`
+      and carrying its CID.
+    steps:
+      - title: "Write the sidecar"
+        text: |
+          A minimal sidecar is needed to build the catalog index.
+        run: |
+          set -eu
+
+          cat > www/sidecar.json <<EOF
+          {
+            "sha256": "$(sha256sum downloader-lgx/*.lgx | cut -d' ' -f1)",
+            "cid": "$(cat cid.txt)"
+          }
+          EOF
+
+          cat www/sidecar.json
+        check_file: "www/sidecar.json"
+
+      - title: |
+          Build index.json
+        text: |
+          `index.json` holds the package metadata, including the CID and the HTTPS URL.
+        run: |
+          set -eu
+
+          nix build 'github:logos-co/logos-package#lgx' -o lgx
+
+          # Write the local URL and the package path to `urls.txt` to be used by `index.py`
+          echo "https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
+
+          # TODO: use master once the PR is merged
+          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/feat/add-storage-as-lgx-provider/index.py
+
+          # Build the index.json by consuming a file containing the local URL (required).
+          PATH="$(pwd)/lgx/bin:$PATH" \
+          SSL_CERT_FILE="$(pwd)/localhost.crt" NIX_SSL_CERT_FILE="$(pwd)/localhost.crt" \
+            python3 index.py build urls.txt --no-icons -o www/index.json 2> index.log
+
+          # Expect logos: on output (expect_contains check)
+          jq . www/index.json
+
+          cat index.log
+        code_block: |
+          echo "https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
+          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/main/index.py
+          nix build 'github:logos-co/logos-package#lgx' -o lgx
+          PATH="$(pwd)/lgx/bin:$PATH" python3 index.py build urls.txt --no-icons -o www/index.json
+        expect_contains:
+          - "logos:"
+
+      - title: "Check that the index advertises the CID"
+        run: |
+          jq -er --arg cid "logos:$(cat cid.txt)" \
+            '.packages[0].versions[0].urls[0] == $cid' www/index.json
+        code_block: |
+          jq -er --arg cid "logos:$(cat cid.txt)" \
+            '.packages[0].versions[0].urls[0] == $cid' www/index.json
+        expect_contains:
+          - "true"
+
+      - title: "Check that the HTTPS URL comes second"
+        text: |
+          The fallback, used when CID not available or network does not match.
+        run: |
+          jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
+            www/index.json
+        code_block: |
+          jq -er '.packages[0].versions[0].urls[1] == "https://127.0.0.1:8443/package_downloader.lgx"' \
+            www/index.json
+        expect_contains:
+          - "true"
+
+      - title: "Write logos-repo.json"
+        text: |
+          `logos-repo.json` tells the downloader where to fetch packages from.
+
+          `network` must equal the node's, otherwise the downloader will
+          ignore the CID.
+
+          Note: `logos.dev` is only checked against the network the storage
+          module reports, the preset's bootstrap nodes are overridden by the
+          `--bootstrap-node` option we pass by hand.
+        run: |
+          set -eu
+
+          cat > www/logos-repo.json <<EOF
+          {
+            "schemaVersion": 1,
+            "name": "doctest-catalog",
+            "displayName": "Doctest Catalog",
+            "description": "Local catalog served over HTTPS for this tutorial.",
+            "indexUrl": "https://127.0.0.1:8443/index.json",
+            "network": "logos.dev",
+            "trustedSigners": []
+          }
+          EOF
+
+          cat www/logos-repo.json
+        check_file: "www/logos-repo.json"
+
+      - title: "The HTTPS fallback is a dead URL"
+        text: |
+          A dead URL, so that a successful download can only have come from the
+          Storage network.
+        run: |
+          set -eu
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt https://127.0.0.1:8443/package_downloader.lgx
+        expect_contains:
+          - "404"
+
+  - title: "Setup environment for Package Downloader"
+    step: true
+    text: |
+      The Package Downloader needs a logosctl daemon running to serve packages.
+      The Storage Module will be a dependency of Basecamp and logosctl, running
+      by default. So we start the daemon and load it first, to recreate that
+      environment.
+
+      `logosctl` is both the Logos daemon and its client; `lgpm` installs
+      `.lgx` packages into a modules directory.
+    steps:
+      - title: "Build logosctl"
+        run: "nix build 'github:logos-co/logos-logoscore-cli?ref=84c66cf89a564a2273c9618d14cddd89f4288245#ctl' --out-link ./logosctl"
+        code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logosctl"
+        check_file: "logosctl/bin/logosctl"
+
+      - title: "Build lgpm"
+        run: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
+        code_block: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
+        check_file: "lgpm/bin/lgpm"
+
+      - title: "Build and install the storage module"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-storage-module/30ade568b46d66e5aff28d917f079a84388f6a4f#lgx' -o storage-lgx
+          ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
+          ./lgpm/bin/lgpm --modules-dir ./session/modules list
+        code_block: |
+          nix build 'github:logos-co/logos-storage-module#lgx' -o storage-lgx
+          lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
+          lgpm --modules-dir ./session/modules list
+        expect_contains:
+          - "storage_module"
+
+      - title: "Start the daemon"
+        text: |
+          The catalog is fetched with libcurl, which needs to be told to trust
+          our self-signed certificate.
+        run: "sh -c 'SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'"
+        code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D > logs.txt &"
+
+      - title: "Load the storage module"
+        run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load storage_module"
+        code_block: "logosctl module load storage_module"
+        expect_contains:
+          - "storage_module"
+
+      - title: "Write the node configuration"
+        text: |
+          By default, Logos Storage provides 2 available networks:
+            1. logos.dev
+            2. logos.test
+
+          Here we provide our own bootstrap node, which overrides the ones the
+          network preset would supply.
+
+          But we still provide a network name because the package downloader
+          needs to know which network to use.
+
+          Note: we could leave it empty, but naming a network makes sure the
+          path that compares network names is exercised.
+        run: |
+          set -eu
+
+          mkdir -p "$(pwd)/storage-data"
+
+          cat > config.json <<EOF
+          {
+              "data-dir": "$(pwd)/storage-data",
+              "log-level": "DEBUG",
+              "log-file": "$(pwd)/storage-data/storage.log",
+              "network": "logos.dev",
+              "nat": "extip:127.0.0.1",
+              "listen-port": 8082,
+              "disc-port": 9092,
+              "bootstrap-node": ["$(cat spr.txt)"]
+          }
+          EOF
+        code_block: |
+          cat > config.json <<EOF
+          {
+              "data-dir": "$(pwd)/storage-data",
+              "network": "logos.dev",
+              "nat": "extip:127.0.0.1",
+              "listen-port": 8082,
+              "disc-port": 9092,
+              "bootstrap-node": ["$(cat spr.txt)"]
+          }
+          EOF
+        check_file: "config.json"
+
+      - title: "Initialise and start the node"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module init @config.json
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module start
+          sleep 5
+        code_block: |
+          logosctl call storage_module init @config.json
+          logosctl call storage_module start
+        expect_contains:
+          - '"result":true'
+
+      - title: "Check the network the node reports"
+        text: |
+          The downloader compares this to the repository's `network`. They have
+          to be equal, or the CID is ignored and the HTTPS URL is used instead.
+        run: './logosctl/bin/logosctl --config-dir ./session call storage_module network'
+        code_block: 'logosctl call storage_module network'
+        expect_contains:
+          - "logos.dev"
+
+      - title: "Ensure that the package does not exist on the Storage node"
+        run: './logosctl/bin/logosctl --config-dir ./session call storage_module exists "$(cat cid.txt)"'
+        code_block: 'logosctl call storage_module exists "$(cat cid.txt)"'
+        expect_contains:
+          - '"value":false'
+
+  - title: "Download the package through the Storage network"
+    step: true
+    steps:
+      - title: "Load package_downloader"
+        run: "./logosctl/bin/logosctl --config-dir ./session module load package_downloader"
+        code_block: "logosctl module load package_downloader"
+        expect_contains:
+          - "package_downloader"
+
+      - title: "Disable the built-in catalogue"
+        text: |
+          The default catalog is always present, so we disable it to use ours.
+        run: |
+          set -eu
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories
+
+          # Get the URL of the default repository
+          url=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories \
+            | jq -er '.result[0].url')
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader setRepositoryEnabled "$url" false
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories
+        code_block: |
+          logosctl call package_downloader listRepositories
+          logosctl call package_downloader setRepositoryEnabled "<default url>" false
+          logosctl call package_downloader listRepositories
+        post_text: |
+          The default catalog is still listed, now disabled.
+        expect_contains:
+          - '"enabled":false'
+
+      - title: "Add our catalogue"
+        run: './logosctl/bin/logosctl --config-dir ./session call package_downloader addRepository "https://127.0.0.1:8443/logos-repo.json"'
+        code_block: 'logosctl call package_downloader addRepository "https://127.0.0.1:8443/logos-repo.json"'
+
+      - title: "Refresh and read the catalogue"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader refreshCatalog
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader listRepositories
+        code_block: |
+          logosctl call package_downloader refreshCatalog
+          logosctl call package_downloader listRepositories
+        expect_contains:
+          - "doctest-catalog"
+
+      - title: "Watch the download progress"
+        text: |
+          Write the download progress events to `progress.txt`.
+        run: |
+          set -eu
+
+          # No --event filter: capture every event the module emits, so the
+          # report shows what actually came through.
+          ./logosctl/bin/logosctl --config-dir ./session --json watch package_downloader \
+            > progress.txt 2>&1 &
+
+          echo $! > watch.pid
+
+          # The subscription has to reach the daemon before the download starts.
+          sleep 2
+        code_block: |
+          logosctl --json watch package_downloader > progress.txt &
+        check_file: "watch.pid"
+
+      - title: "Download the package"
+        text: |
+          The package `package_downloader`, previously uploaded to the Storage node
+          using the HTTP API to simulate a release publication, is now downloaded
+          using the Package Downloader through the Storage node.
+
+          The empty strings mean "any": any version, any hash (version, rootHash).
+
+          The download path is saved to `path.txt`.
+        run: |
+          set -eu
+
+          # Download the package and save the result to `download.json`
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
+            > download.json
+
+          cat download.json
+
+          # Get the download path from `download.json` and save it to `path.txt` to reuse later
+          jq -er '.result.path' download.json > path.txt
+
+          cat path.txt
+        code_block: |
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
+        check_file: "path.txt"
+
+      - title: "Check the progress that was reported"
+        text: |
+          Check out file previously saved to `progress.txt` to ensure that
+          the download progress event was emitted and the data received
+          matches the total.
+
+          Event data are:
+            - `arg0`: the package name
+            - `arg1`: the bytes received
+            - `arg2`: the total
+
+        run: |
+          set -eu
+
+          kill "$(cat watch.pid)"
+
+          cat progress.txt
+
+          # The daemon reports a refused subscription here, not in progress.txt.
+          cat logs.txt
+
+          jq -es 'map(select(.event == "downloadProgress")) | last
+                  | .data.arg1 == .data.arg2 and .data.arg2 > 0' progress.txt
+        code_block: |
+          jq -es 'map(select(.event == "downloadProgress")) | last
+                  | .data.arg1 == .data.arg2 and .data.arg2 > 0' progress.txt
+        expect_contains:
+          - "true"
+
+      - title: "Verify the downloaded file exists"
+        run: 'ls -l "$(cat path.txt)"'
+        expect_contains:
+          - "package_downloader"
+
+      - title: "Verify the file is available on the Storage node"
+        run: './logosctl/bin/logosctl --config-dir ./session call storage_module exists "$(cat cid.txt)"'
+        code_block: 'logosctl call storage_module exists "$(cat cid.txt)"'
+        expect_contains:
+          - '"value":true'
+
+  - title: "Shut down"
+    step: true
+    steps:
+      - title: "Stop the node and the daemon"
+        run: |
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module stop
+          ./logosctl/bin/logosctl --config-dir ./session stop
+          kill "$(cat caddy.pid)" "$(cat node.pid)"
+        code_block: |
+          logosctl call storage_module stop
+          logosctl stop
