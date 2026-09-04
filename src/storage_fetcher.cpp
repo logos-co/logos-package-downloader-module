@@ -1,6 +1,7 @@
 #include "storage_fetcher.h"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -12,6 +13,7 @@
 namespace fs = std::filesystem;
 
 StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDone onStorageDownloadDone,
+                               OnStorageDownloadProgress onStorageDownloadProgress,
                                DownloadCancel downloadCancel, std::chrono::milliseconds downloadTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
     , m_downloadCancel(std::move(downloadCancel))
@@ -19,6 +21,10 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
 {
     m_subscribed = onStorageDownloadDone([this](const std::string& payload) {
         onDownloadDone(payload);
+    });
+
+    onStorageDownloadProgress([this](const std::string& payload) {
+        onDownloadProgress(payload);
     });
 }
 
@@ -53,6 +59,11 @@ lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) 
 }
 
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::string& path) {
+    return getToFile(cid, path, lgpd::ProgressFn{});
+}
+
+lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::string& path,
+                                            const lgpd::ProgressFn& onProgress) {
     if (!m_subscribed) {
         return {false, "not subscribed to storage_module's storageDownloadDone event"};
     }
@@ -66,7 +77,10 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
             return {false, "a download of " + cid + " is already in progress"};
         }
 
-        done = m_pending[cid].get_future();
+        Pending& pending = m_pending[cid];
+
+        done = pending.result.get_future();
+        pending.onProgress = onProgress;
 
         // mutex is released here when lock goes out of scope
     }
@@ -139,6 +153,49 @@ void StorageFetcher::onDownloadDone(const std::string& payload) {
         return;
     }
 
-    m_pending[cid].set_value(std::move(result));
+    m_pending[cid].result.set_value(std::move(result));
     m_pending.erase(cid);
+}
+
+void StorageFetcher::onDownloadProgress(const std::string& payload) {
+    std::string cid;
+    std::uint64_t bytes = 0;
+    std::uint64_t total = 0;
+
+    try {
+        const LogosMap event = LogosMap::parse(payload);
+
+        if (!event.is_object()) {
+            return;
+        }
+
+        cid = event.value("sessionId", "");
+        bytes = event.value("bytes", std::uint64_t{0});
+        total = event.value("total", std::uint64_t{0});
+    } catch (...) {
+        return;
+    }
+
+    if (cid.empty()) {
+        return;
+    }
+
+    // Get a mutex for m_pending
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (m_pending.count(cid) == 0) {
+        return;
+    }
+
+    Pending& pending = m_pending[cid];
+
+    if (!pending.onProgress) {
+        return;
+    }
+
+    pending.received += bytes;
+
+    // Called under the lock because pending could be
+    // modified concurrently by onDownloadDone.
+    pending.onProgress(pending.received, total);
 }

@@ -28,6 +28,11 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
             return modules.storage_module.onStorageDownloadDone(std::move(callback));
         };
 
+    StorageFetcher::OnStorageDownloadProgress onStorageDownloadProgress =
+        [&modules](std::function<void(const std::string&)> callback) {
+            return modules.storage_module.onStorageDownloadProgress(std::move(callback));
+        };
+
     StorageFetcher::DownloadCancel downloadCancel =
         [&modules](const std::string& cid) {
             const StdLogosResult r = modules.storage_module.downloadCancel(cid);
@@ -35,7 +40,8 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
             return r.success ? std::string() : r.error;
         };
 
-    return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone, downloadCancel);
+    return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone,
+                                           onStorageDownloadProgress, downloadCancel);
 }
 
 std::string makeNetwork(LogosModules& modules) {

@@ -12,6 +12,7 @@ what_you_build: "A release-like environment to download a file over Logos Storag
 what_you_learn:
   - How a release publishes a package to a storage node
   - How a catalog advertises that package over two protocols in its `urls` entry
+  - How to follow a download's progress with `logosctl watch`
   - Why the repository's `network` must match the storage node's own
 
 prerequisites:
@@ -492,6 +493,20 @@ sections:
         expect_contains:
           - "doctest-catalog"
 
+      - title: "Watch the download progress"
+        text: |
+          Write the download progress events to `progress.txt`.
+        run: |
+          set -eu
+
+          ./logosctl/bin/logosctl --config-dir ./session --json watch package_downloader \
+            --event downloadProgress > progress.txt 2>&1 &
+
+          echo $! > watch.pid
+        code_block: |
+          logosctl --json watch package_downloader --event downloadProgress > progress.txt &
+        check_file: "watch.pid"
+
       - title: "Download the package"
         text: |
           The package `package_downloader`, previously uploaded to the Storage node
@@ -517,6 +532,28 @@ sections:
         code_block: |
           logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
         check_file: "path.txt"
+
+      - title: "Check the progress that was reported"
+        text: |
+          Check out file previously saved to `progress.txt` to ensure that
+          the download progress event was emitted and the data received
+          matches the total.
+
+          Event data are:
+            - `arg0`: the package name
+            - `arg1`: the bytes received
+            - `arg2`: the total
+
+        run: |
+          set -eu
+
+          kill "$(cat watch.pid)"
+
+          tail -n 1 progress.txt | jq -e '.data.arg1 == .data.arg2 and .data.arg2 > 0'
+        code_block: |
+          tail -n 1 progress.txt | jq -e '.data.arg1 == .data.arg2 and .data.arg2 > 0'
+        expect_contains:
+          - "true"
 
       - title: "Verify the downloaded file exists"
         run: 'ls -l "$(cat path.txt)"'

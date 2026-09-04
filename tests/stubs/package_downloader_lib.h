@@ -36,6 +36,12 @@ public:
 
     virtual FetchResult get(const std::string& url, std::string& out) = 0;
     virtual FetchResult getToFile(const std::string& url, const std::string& path) = 0;
+    virtual FetchResult getToFile(const std::string& url,
+                                  const std::string& path,
+                                  const ProgressFn& onProgress) {
+        (void)onProgress;
+        return getToFile(url, path);
+    }
 };
 
 class RepositoryRegistry {
