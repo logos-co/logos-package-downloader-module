@@ -32,11 +32,12 @@ lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) 
     const fs::path tmp = fs::temp_directory_path() / ("lgpd-storage-" + cid);
     const lgpd::FetchResult fetched = getToFile(cid, tmp.string());
 
+    std::error_code ec;
+
     if (!fetched.ok) {
+        fs::remove(tmp, ec);
         return fetched;
     }
-
-    std::error_code ec;
 
     // Declare a file stream to read the temporary file in binary mode
     std::ifstream file(tmp, std::ios::binary);
