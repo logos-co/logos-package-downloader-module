@@ -14,10 +14,15 @@ namespace fs = std::filesystem;
 
 StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDone onStorageDownloadDone,
                                OnStorageDownloadProgress onStorageDownloadProgress,
-                               DownloadCancel downloadCancel, std::chrono::milliseconds downloadTimeout)
+                               DownloadCancel downloadCancel, DownloadManifest downloadManifest,
+                               OnStorageDownloadManifestDone onStorageDownloadManifestDone,
+                               std::chrono::milliseconds downloadTimeout,
+                               std::chrono::milliseconds manifestTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
     , m_downloadCancel(std::move(downloadCancel))
+    , m_downloadManifest(std::move(downloadManifest))
     , m_downloadTimeout(downloadTimeout)
+    , m_manifestTimeout(manifestTimeout)
 {
     m_subscribed = onStorageDownloadDone([this](const std::string& payload) {
         onDownloadDone(payload);
@@ -26,6 +31,51 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     onStorageDownloadProgress([this](const std::string& payload) {
         onDownloadProgress(payload);
     });
+
+    m_manifestSubscribed = onStorageDownloadManifestDone([this](const std::string& payload) {
+        onManifestDone(payload);
+    });
+}
+
+lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
+    if (!m_manifestSubscribed) {
+        return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
+    }
+
+    std::future<lgpd::FetchResult> done;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (m_pendingManifests.count(cid) > 0) {
+            return {false, "a manifest fetch for " + cid + " is already in progress"};
+        }
+
+        done = m_pendingManifests[cid].get_future();
+    }
+
+    if (std::string err = m_downloadManifest(cid); !err.empty()) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_pendingManifests.erase(cid);
+        return {false, std::move(err)};
+    }
+
+    if (done.wait_for(m_manifestTimeout) != std::future_status::ready) {
+        bool dropped = false;
+        {
+            // Get a mutex for m_pending
+            std::lock_guard<std::mutex> lock(m_mutex);
+
+            // We double check to make sure that the download is still pending and
+            // wasn't completed while we were waiting for the lock.
+            dropped = m_pendingManifests.erase(cid) > 0;
+        }
+
+        if (dropped) {
+            return {false, "timed out waiting for the manifest of " + cid};
+        }
+    }
+
+    return done.get();
 }
 
 lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) {
@@ -67,6 +117,16 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
                                             const lgpd::ProgressFn& onProgress) {
     if (!m_subscribed) {
         return {false, "not subscribed to storage_module's storageDownloadDone event"};
+    }
+
+    // This is important to fetch the manifest before downloading the content.
+    // The `fetchManifest` is async and will wait until the manifest retry mechanism
+    // is exhausted (up to 10 times).
+    //
+    // The manifest is needed anyway to do the download but this mechanism is not supported
+    // by downloadToUrl, it relies on timeout.
+    if (lgpd::FetchResult manifest = fetchManifest(cid); !manifest.ok) {
+        return manifest;
     }
 
     std::future<lgpd::FetchResult> done;
@@ -162,6 +222,43 @@ void StorageFetcher::onDownloadDone(const std::string& payload) {
 
     m_pending[cid].result.set_value(std::move(result));
     m_pending.erase(cid);
+}
+
+void StorageFetcher::onManifestDone(const std::string& payload) {
+    std::string cid;
+    lgpd::FetchResult result;
+
+    try {
+        const LogosMap event = LogosMap::parse(payload);
+
+        if (!event.is_object()) {
+            return;
+        }
+
+        cid = event.value("cid", "");
+
+        if (event.value("success", false)) {
+            result = {true, {}};
+        } else {
+            result = {false, event.value("error", "storage manifest fetch failed")};
+        }
+    } catch (...) {
+        return;
+    }
+
+    if (cid.empty()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    auto it = m_pendingManifests.find(cid);
+    if (it == m_pendingManifests.end()) {
+        return;
+    }
+
+    it->second.set_value(std::move(result));
+    m_pendingManifests.erase(it);
 }
 
 void StorageFetcher::onDownloadProgress(const std::string& payload) {

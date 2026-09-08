@@ -20,12 +20,21 @@ public:
     using DownloadToUrl = std::function<std::string(const std::string& cid, const std::string& filePath)>;
     using OnStorageDownloadDone = std::function<bool(std::function<void(const std::string& payload)>)>;
     using OnStorageDownloadProgress = std::function<bool(std::function<void(const std::string& payload)>)>;
-    // Returns an empty string when the session was dropped, an error
-    // message otherwise.
     using DownloadCancel = std::function<std::string(const std::string& cid)>;
+    using DownloadManifest = std::function<std::string(const std::string& cid)>;
+    using OnStorageDownloadManifestDone = std::function<bool(std::function<void(const std::string& payload)>)>;
 
-    // Default timeout is 5 minutes.
-    StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDone onStorageDownloadDone, OnStorageDownloadProgress onStorageDownloadProgress, DownloadCancel downloadCancel, std::chrono::milliseconds downloadTimeout = std::chrono::minutes(5));
+    // Default timeout pour manifest: 30 seconds.
+    // Default timeout pour transfert: 5 minutes.
+    StorageFetcher(
+        DownloadToUrl downloadToUrl,
+        OnStorageDownloadDone onStorageDownloadDone,
+        OnStorageDownloadProgress onStorageDownloadProgress,
+        DownloadCancel downloadCancel,
+        DownloadManifest downloadManifest,
+        OnStorageDownloadManifestDone onStorageDownloadManifestDone,
+        std::chrono::milliseconds downloadTimeout = std::chrono::minutes(5),
+        std::chrono::milliseconds manifestTimeout = std::chrono::seconds(30));
 
     lgpd::FetchResult get(const std::string& cid, std::string& out) override;
     lgpd::FetchResult getToFile(const std::string& cid, const std::string& path) override;
@@ -33,8 +42,11 @@ public:
                                 const lgpd::ProgressFn& onProgress) override;
 
 private:
+    lgpd::FetchResult fetchManifest(const std::string& cid);
+
     void onDownloadDone(const std::string& payload);
     void onDownloadProgress(const std::string& payload);
+    void onManifestDone(const std::string& payload);
 
     struct Pending {
         std::promise<lgpd::FetchResult> result;
@@ -44,9 +56,15 @@ private:
 
     DownloadToUrl m_downloadToUrl;
     DownloadCancel m_downloadCancel;
+    DownloadManifest m_downloadManifest;
+
     std::chrono::milliseconds m_downloadTimeout;
+    std::chrono::milliseconds m_manifestTimeout;
+
     bool m_subscribed = false;
+    bool m_manifestSubscribed = false;
 
     std::mutex m_mutex;
     std::map<std::string, Pending> m_pending;
+    std::map<std::string, std::promise<lgpd::FetchResult>> m_pendingManifests;
 };
