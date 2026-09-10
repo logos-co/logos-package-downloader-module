@@ -3,7 +3,9 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    logos-package-downloader.url = "github:logos-co/logos-package-downloader";
+    # TEMPORARY: revert to the bare URL when
+    # logos-co/logos-package-downloader#39 merges.
+    logos-package-downloader.url = "github:logos-co/logos-package-downloader?ref=fix/catalog-array-valued-provides";
   };
 
   outputs = inputs@{ logos-module-builder, ... }:
