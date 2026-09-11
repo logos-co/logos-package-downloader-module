@@ -1,12 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 #include <logos_json.h>
 #include <logos_module_context.h>
 
-namespace lgpd { class PackageDownloaderLib; }
+namespace lgpd { class PackageDownloaderLib; class Fetcher; }
 
 /**
  * Bridges the lgpd C++ library to the Logos module ABI.
@@ -102,4 +103,8 @@ private:
     std::string storageNetwork() const;
 
     lgpd::PackageDownloaderLib* m_lib;
+
+    // Save the storage fetcher so it doesn't need
+    // to unsubscribe and resubscribe to storage_module events.
+    std::shared_ptr<lgpd::Fetcher> m_storageFetcher;
 };

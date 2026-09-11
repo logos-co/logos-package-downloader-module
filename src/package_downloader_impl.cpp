@@ -145,8 +145,8 @@ void PackageDownloaderImpl::onContextReady() {
     m_lib = replacement;
 
     if (modules().modules_state.is_ready("storage_module")) {
-        auto fetcher = makeStorageFetcher(modules());
-        m_lib->setStorageFetcher(fetcher);
+        m_storageFetcher = makeStorageFetcher(modules());
+        m_lib->setStorageFetcher(m_storageFetcher);
     }
 
     // Subscribe to onModule_state_changed to detect when storage_module is ready,
@@ -166,8 +166,11 @@ void PackageDownloaderImpl::onContextReady() {
                 return;
             }
 
-            auto fetcher = makeStorageFetcher(modules());
-            m_lib->setStorageFetcher(fetcher);
+            if (!m_storageFetcher) {
+                m_storageFetcher = makeStorageFetcher(modules());
+            }
+
+            m_lib->setStorageFetcher(m_storageFetcher);
         });
 }
 
