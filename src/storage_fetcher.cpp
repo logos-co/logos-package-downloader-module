@@ -30,9 +30,8 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     ensureSubscribed();
 }
 
-    onStorageDownloadProgress([this](const std::string& payload) {
-        onDownloadProgress(payload);
-    });
+void StorageFetcher::ensureSubscribed() {
+    std::lock_guard<std::mutex> lock(m_mutex);
 
     if (!m_subscribed) {
         m_subscribed = m_onStorageDownloadDone([this](const std::string& payload) {
