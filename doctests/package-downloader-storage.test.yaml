@@ -341,7 +341,7 @@ sections:
       `.lgx` packages into a modules directory.
     steps:
       - title: "Build logosctl"
-        run: "nix build 'github:logos-co/logos-logoscore-cli?ref=712c8f4ad9ed37ddc59864879c2e98c9ebbd6e92#ctl' --out-link ./logosctl"
+        run: "nix build 'github:logos-co/logos-logoscore-cli?ref=63af9b9ed57552e12ada87e38085a017cb431988#ctl' --out-link ./logosctl"
         code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logosctl"
         check_file: "logosctl/bin/logosctl"
 
@@ -644,6 +644,54 @@ sections:
         code_block: |
           logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
         check_file: "https-path.txt"
+
+  - title: "The fetcher comes back with the storage module"
+    step: true
+    text: |
+      The downloader picks its storage fetcher up again when the module
+      returns, with no restart of the daemon.
+    steps:
+      - title: "Load and start the storage module again"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session module load storage_module
+          sleep 2
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module init @config.json
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module start
+          sleep 5
+        code_block: |
+          logosctl module load storage_module
+          logosctl call storage_module init @config.json
+          logosctl call storage_module start
+        expect_contains:
+          - '"result":true'
+
+      - title: "Take the HTTPS URL offline again"
+        text: |
+          Only the storage network can serve the package now, so a download
+          that succeeds proves the fetcher is back.
+        run: |
+          set -eu
+          rm -f www/package_downloader.lgx "$(cat https-path.txt)"
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt https://127.0.0.1:8443/package_downloader.lgx
+        code_block: |
+          rm www/package_downloader.lgx
+        expect_contains:
+          - "404"
+
+      - title: "The download succeeds over storage again"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
+            > download-storage-again.json
+
+          cat download-storage-again.json
+
+          jq -er '.result.path' download-storage-again.json > storage-again-path.txt
+          ls -l "$(cat storage-again-path.txt)"
+        code_block: |
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
+        check_file: "storage-again-path.txt"
 
   - title: "Shut down"
     step: true
