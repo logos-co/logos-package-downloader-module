@@ -21,23 +21,41 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     : m_downloadToUrl(std::move(downloadToUrl))
     , m_downloadCancel(std::move(downloadCancel))
     , m_downloadManifest(std::move(downloadManifest))
+    , m_onStorageDownloadDone(std::move(onStorageDownloadDone))
+    , m_onStorageDownloadProgress(std::move(onStorageDownloadProgress))
+    , m_onStorageDownloadManifestDone(std::move(onStorageDownloadManifestDone))
     , m_downloadTimeout(downloadTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
-    m_subscribed = onStorageDownloadDone([this](const std::string& payload) {
-        onDownloadDone(payload);
-    });
+    ensureSubscribed();
+}
 
     onStorageDownloadProgress([this](const std::string& payload) {
         onDownloadProgress(payload);
     });
 
-    m_manifestSubscribed = onStorageDownloadManifestDone([this](const std::string& payload) {
-        onManifestDone(payload);
-    });
+    if (!m_subscribed) {
+        m_subscribed = m_onStorageDownloadDone([this](const std::string& payload) {
+            onDownloadDone(payload);
+        });
+    }
+
+    if (!m_progressSubscribed) {
+        m_progressSubscribed = m_onStorageDownloadProgress([this](const std::string& payload) {
+            onDownloadProgress(payload);
+        });
+    }
+
+    if (!m_manifestSubscribed) {
+        m_manifestSubscribed = m_onStorageDownloadManifestDone([this](const std::string& payload) {
+            onManifestDone(payload);
+        });
+    }
 }
 
 lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
+    ensureSubscribed();
+
     if (!m_manifestSubscribed) {
         return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
     }
@@ -115,6 +133,8 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
 
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::string& path,
                                             const lgpd::ProgressFn& onProgress) {
+    ensureSubscribed();
+
     if (!m_subscribed) {
         return {false, "not subscribed to storage_module's storageDownloadDone event"};
     }

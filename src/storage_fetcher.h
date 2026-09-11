@@ -42,6 +42,8 @@ public:
                                 const lgpd::ProgressFn& onProgress) override;
 
 private:
+    void ensureSubscribed();
+
     lgpd::FetchResult fetchManifest(const std::string& cid);
 
     void onDownloadDone(const std::string& payload);
@@ -58,10 +60,15 @@ private:
     DownloadCancel m_downloadCancel;
     DownloadManifest m_downloadManifest;
 
+    OnStorageDownloadDone m_onStorageDownloadDone;
+    OnStorageDownloadProgress m_onStorageDownloadProgress;
+    OnStorageDownloadManifestDone m_onStorageDownloadManifestDone;
+
     std::chrono::milliseconds m_downloadTimeout;
     std::chrono::milliseconds m_manifestTimeout;
 
     bool m_subscribed = false;
+    bool m_progressSubscribed = false;
     bool m_manifestSubscribed = false;
 
     std::mutex m_mutex;
