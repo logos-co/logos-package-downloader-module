@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <logos_json.h>
@@ -103,6 +104,8 @@ protected:
 private:
     std::string storageNetwork() const;
 
+    void setStorageReady(bool ready);
+
     lgpd::PackageDownloaderLib* m_lib;
 
     // Save the storage fetcher so it doesn't need
@@ -111,4 +114,8 @@ private:
 
     // Keep the readiness state of the storage module.
     std::atomic<bool> m_storageReady{false};
+
+    // setStorageReady runs from the modules_state event thread and from
+    // onContextReady.
+    std::mutex m_storageMutex;
 };

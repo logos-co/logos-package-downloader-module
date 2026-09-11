@@ -146,37 +146,37 @@ void PackageDownloaderImpl::onContextReady() {
     delete m_lib;
     m_lib = replacement;
 
-    if (modules().modules_state.is_ready("storage_module")) {
-        m_storageFetcher = makeStorageFetcher(modules());
-        m_lib->setStorageFetcher(m_storageFetcher);
-        m_storageReady = true;
-    }
-
-    // Subscribe to onModule_state_changed to detect when storage_module is ready,
-    // and set up the storage fetcher again.
+    // Subscribe before the first read: a module that becomes ready between the
+    // two would otherwise never be seen again.
     modules().modules_state.onModule_state_changed(
         [this](const std::string& module,
                const LogosMap&, const LogosMap&,
                const std::string&,
                const std::string& newState,
                const LogosMap&, std::uint64_t) {
-            if (module != "storage_module") {
-                return;
+            if (module == "storage_module") {
+                setStorageReady(newState == "ready");
             }
-
-            if (newState != "ready") {
-                m_storageReady = false;
-                m_lib->setStorageFetcher(nullptr);
-                return;
-            }
-
-            if (!m_storageFetcher) {
-                m_storageFetcher = makeStorageFetcher(modules());
-            }
-
-            m_lib->setStorageFetcher(m_storageFetcher);
-            m_storageReady = true;
         });
+
+    setStorageReady(modules().modules_state.is_ready("storage_module"));
+}
+
+void PackageDownloaderImpl::setStorageReady(bool ready) {
+    std::lock_guard<std::mutex> lock(m_storageMutex);
+
+    if (!ready) {
+        m_storageReady = false;
+        m_lib->setStorageFetcher(nullptr);
+        return;
+    }
+
+    if (!m_storageFetcher) {
+        m_storageFetcher = makeStorageFetcher(modules());
+    }
+
+    m_lib->setStorageFetcher(m_storageFetcher);
+    m_storageReady = true;
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
