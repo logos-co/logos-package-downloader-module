@@ -301,5 +301,8 @@ void StorageFetcher::onDownloadProgress(const std::string& payload) {
 
     // Called under the lock because pending could be
     // modified concurrently by onDownloadDone.
+    //
+    // It should not hold the lock for long: the lib throttles
+    // to one emit per 200ms and drops the rest on entry.
     pending.onProgress(pending.received, total);
 }
