@@ -144,9 +144,31 @@ void PackageDownloaderImpl::onContextReady() {
     delete m_lib;
     m_lib = replacement;
 
-    // modules() is generated using the metadata.json dependencies.
-    auto fetcher = makeStorageFetcher(modules());
-    m_lib->setStorageFetcher(fetcher);
+    if (modules().modules_state.is_ready("storage_module")) {
+        auto fetcher = makeStorageFetcher(modules());
+        m_lib->setStorageFetcher(fetcher);
+    }
+
+    // Subscribe to onModule_state_changed to detect when storage_module is ready,
+    // and set up the storage fetcher again.
+    modules().modules_state.onModule_state_changed(
+        [this](const std::string& module,
+               const LogosMap&, const LogosMap&,
+               const std::string&,
+               const std::string& newState,
+               const LogosMap&, std::uint64_t) {
+            if (module != "storage_module") {
+                return;
+            }
+
+            if (newState != "ready") {
+                m_lib->setStorageFetcher(nullptr);
+                return;
+            }
+
+            auto fetcher = makeStorageFetcher(modules());
+            m_lib->setStorageFetcher(fetcher);
+        });
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
