@@ -116,7 +116,9 @@ PackageDownloaderImpl::PackageDownloaderImpl()
     // XDG config file once in the lib's constructor.
 }
 
-PackageDownloaderImpl::~PackageDownloaderImpl() { delete m_lib; }
+// m_lib outlives us on purpose: the modules_state callback still uses it, and
+// nothing ever cancels that subscription.
+PackageDownloaderImpl::~PackageDownloaderImpl() = default;
 
 void PackageDownloaderImpl::onContextReady() {
     // The codegen-generated provider has just populated the

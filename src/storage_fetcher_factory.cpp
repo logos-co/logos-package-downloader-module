@@ -52,9 +52,12 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
             return modules.storage_module.onStorageDownloadManifestDone(std::move(callback));
         };
 
-    return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone,
-                                           onStorageDownloadProgress, downloadCancel,
-                                           downloadManifest, onStorageDownloadManifestDone);
+    // Stays alive for the whole process: the event callbacks still point at it.
+    return std::shared_ptr<lgpd::Fetcher>(
+        new StorageFetcher(downloadToUrl, onStorageDownloadDone,
+                           onStorageDownloadProgress, downloadCancel,
+                           downloadManifest, onStorageDownloadManifestDone),
+        [](lgpd::Fetcher*) {});
 }
 
 std::string makeNetwork(LogosModules& modules) {
