@@ -7,6 +7,8 @@
 // shims have been removed.
 
 #include "package_downloader_impl.h"
+#include "storage_fetcher.h"
+#include "storage_fetcher_factory.h"
 
 #include <package_downloader_lib.h>
 
@@ -16,7 +18,6 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <utility>   // std::move
 #include <vector>
@@ -142,6 +143,35 @@ void PackageDownloaderImpl::onContextReady() {
     auto* replacement = new lgpd::PackageDownloaderLib(newPath);
     delete m_lib;
     m_lib = replacement;
+
+    if (modules().modules_state.is_ready("storage_module")) {
+        m_storageFetcher = makeStorageFetcher(modules());
+        m_lib->setStorageFetcher(m_storageFetcher);
+    }
+
+    // Subscribe to onModule_state_changed to detect when storage_module is ready,
+    // and set up the storage fetcher again.
+    modules().modules_state.onModule_state_changed(
+        [this](const std::string& module,
+               const LogosMap&, const LogosMap&,
+               const std::string&,
+               const std::string& newState,
+               const LogosMap&, std::uint64_t) {
+            if (module != "storage_module") {
+                return;
+            }
+
+            if (newState != "ready") {
+                m_lib->setStorageFetcher(nullptr);
+                return;
+            }
+
+            if (!m_storageFetcher) {
+                m_storageFetcher = makeStorageFetcher(modules());
+            }
+
+            m_lib->setStorageFetcher(m_storageFetcher);
+        });
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
@@ -180,10 +210,20 @@ LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrN
     return LogosList::parse(m_lib->getCatalogForRepoJson(repoUrlOrName));
 }
 
+std::string PackageDownloaderImpl::storageNetwork() const {
+    if (!isContextReady()) {
+        return std::string();
+    }
+
+    return makeNetwork(modules());
+}
+
 LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
                                                 const std::string& rootHash) {
+    m_lib->setNetwork(storageNetwork());
+
     return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
                           [this](const std::string& name, std::uint64_t received,
                                  std::uint64_t total) {
@@ -197,6 +237,8 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     // (below) so one bad entry never takes down the whole batch.
     // `resolveDependencies` reuses this same pattern.
     LogosList results = LogosList::array();
+
+    m_lib->setNetwork(storageNetwork());
 
     // Extract the requested top-level names up front so a failure that
     // throws *before* resolveDependenciesJson emits any per-entry output

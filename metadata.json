@@ -9,6 +9,7 @@
     "category": "management",
     "main": "package_downloader_plugin",
     "dependencies": [],
+    "optional_dependencies": ["storage_module", "modules_state"],
     "concurrency": "multi",
     "include": [
         "libpackage_downloader_lib.so",
