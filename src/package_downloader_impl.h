@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -107,4 +108,7 @@ private:
     // Save the storage fetcher so it doesn't need
     // to unsubscribe and resubscribe to storage_module events.
     std::shared_ptr<lgpd::Fetcher> m_storageFetcher;
+
+    // Keep the readiness state of the storage module.
+    std::atomic<bool> m_storageReady{false};
 };

@@ -147,6 +147,7 @@ void PackageDownloaderImpl::onContextReady() {
     if (modules().modules_state.is_ready("storage_module")) {
         m_storageFetcher = makeStorageFetcher(modules());
         m_lib->setStorageFetcher(m_storageFetcher);
+        m_storageReady = true;
     }
 
     // Subscribe to onModule_state_changed to detect when storage_module is ready,
@@ -162,6 +163,7 @@ void PackageDownloaderImpl::onContextReady() {
             }
 
             if (newState != "ready") {
+                m_storageReady = false;
                 m_lib->setStorageFetcher(nullptr);
                 return;
             }
@@ -171,6 +173,7 @@ void PackageDownloaderImpl::onContextReady() {
             }
 
             m_lib->setStorageFetcher(m_storageFetcher);
+            m_storageReady = true;
         });
 }
 
@@ -211,7 +214,7 @@ LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrN
 }
 
 std::string PackageDownloaderImpl::storageNetwork() const {
-    if (!isContextReady()) {
+    if (!m_storageReady) {
         return std::string();
     }
 
