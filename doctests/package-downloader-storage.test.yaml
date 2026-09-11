@@ -14,6 +14,7 @@ what_you_learn:
   - How a catalog advertises that package over two protocols in its `urls` entry
   - How to follow a download's progress with `logosctl watch`
   - Why the repository's `network` must match the storage node's own
+  - How the downloader falls back to the HTTPS URL when storage is gone
 
 prerequisites:
   - |
@@ -369,6 +370,15 @@ sections:
         run: "sh -c 'SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'"
         code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D > logs.txt &"
 
+      - title: "Load package_downloader"
+        text: |
+          `storage_module` is an optional dependency of the downloader: load
+          the downloader first, then the storage module.
+        run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load package_downloader"
+        code_block: "logosctl module load package_downloader"
+        expect_contains:
+          - "package_downloader"
+
       - title: "Load the storage module"
         run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load storage_module"
         code_block: "logosctl module load storage_module"
@@ -449,12 +459,6 @@ sections:
   - title: "Download the package through the Storage network"
     step: true
     steps:
-      - title: "Load package_downloader"
-        run: "./logosctl/bin/logosctl --config-dir ./session module load package_downloader"
-        code_block: "logosctl module load package_downloader"
-        expect_contains:
-          - "package_downloader"
-
       - title: "Disable the built-in catalogue"
         text: |
           The default catalog is always present, so we disable it to use ours.
@@ -578,14 +582,74 @@ sections:
         expect_contains:
           - '"value":true'
 
+  - title: "The storage fetcher follows the storage module state"
+    step: true
+    text: |
+      The downloader drops its storage fetcher when the module leaves.
+    steps:
+      - title: "Unload the storage module"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module stop
+          ./logosctl/bin/logosctl --config-dir ./session module unload storage_module
+        code_block: |
+          logosctl call storage_module stop
+          logosctl module unload storage_module
+
+      - title: "The same download now fails"
+        run: |
+          set -eu
+          rm -f "$(cat path.txt)"
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
+            > download-without-storage.json || true
+
+          cat download-without-storage.json
+
+          # No path came back, and the error names the dead https URL.
+          jq -e '.result | has("path") | not' download-without-storage.json > /dev/null
+          jq -e '.result.error | contains("https")' download-without-storage.json > /dev/null
+          echo "no storage, no download"
+        code_block: |
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
+        check_file: "download-without-storage.json"
+
+  - title: "Fall back to HTTPS"
+    step: true
+    text: |
+      With no storage module left, the HTTPS URL is the only one that can serve.
+    steps:
+      - title: "Make the HTTPS URL live"
+        text: |
+          Make the HTTPS URL live so that the downloader falls back to it.
+        run: |
+          set -eu
+          cp downloader-lgx/*.lgx www/package_downloader.lgx
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt https://127.0.0.1:8443/package_downloader.lgx
+        code_block: |
+          cp downloader-lgx/*.lgx www/package_downloader.lgx
+        expect_contains:
+          - "200"
+
+      - title: "The download succeeds over HTTPS"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
+            > download-over-https.json
+
+          cat download-over-https.json
+
+          jq -er '.result.path' download-over-https.json > https-path.txt
+          ls -l "$(cat https-path.txt)"
+        code_block: |
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
+        check_file: "https-path.txt"
+
   - title: "Shut down"
     step: true
     steps:
-      - title: "Stop the node and the daemon"
+      - title: "Stop the daemon"
         run: |
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module stop
           ./logosctl/bin/logosctl --config-dir ./session stop
           kill "$(cat caddy.pid)" "$(cat node.pid)"
-        code_block: |
-          logosctl call storage_module stop
-          logosctl stop
+        code_block: "logosctl stop"
