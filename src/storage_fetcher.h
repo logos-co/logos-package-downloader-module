@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -67,9 +68,10 @@ private:
     std::chrono::milliseconds m_downloadTimeout;
     std::chrono::milliseconds m_manifestTimeout;
 
-    bool m_subscribed = false;
+    std::atomic<bool> m_subscribed{false};
+    std::atomic<bool> m_manifestSubscribed{false};
+
     bool m_progressSubscribed = false;
-    bool m_manifestSubscribed = false;
 
     std::mutex m_mutex;
     std::map<std::string, Pending> m_pending;
