@@ -138,6 +138,14 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
         return {false, "not subscribed to storage_module's storageDownloadDone event"};
     }
 
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (m_pending.count(cid) > 0) {
+            return {false, "a download of " + cid + " is already in progress"};
+        }
+    }
+
     // This is important to fetch the manifest before downloading the content.
     // The `fetchManifest` is async and will wait until the manifest retry mechanism
     // is exhausted (up to 10 times).
