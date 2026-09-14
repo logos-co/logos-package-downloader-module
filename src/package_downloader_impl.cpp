@@ -10,8 +10,6 @@
 #include "storage_fetcher.h"
 #include "storage_fetcher_factory.h"
 
-#include "logos_sdk.h"
-
 #include <package_downloader_lib.h>
 
 #include <algorithm>
@@ -148,20 +146,9 @@ void PackageDownloaderImpl::onContextReady() {
     delete m_lib;
     m_lib = replacement;
 
-    // Subscribe before the first read: a module that becomes ready between the
-    // two would otherwise never be seen again.
-    modules().modules_state.onModule_state_changed(
-        [this](const std::string& module,
-               const LogosMap&, const LogosMap&,
-               const std::string&,
-               const std::string& newState,
-               const LogosMap&, std::uint64_t) {
-            if (module == "storage_module") {
-                setStorageReady(newState == "ready");
-            }
-        });
-
-    setStorageReady(modules().modules_state.is_ready("storage_module"));
+    watchStorageReady(modules(), [this](bool ready) {
+        setStorageReady(ready);
+    });
 }
 
 void PackageDownloaderImpl::setStorageReady(bool ready) {

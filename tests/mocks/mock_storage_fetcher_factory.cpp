@@ -7,3 +7,6 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules&) {
 std::string makeNetwork(LogosModules&) {
     return {};
 }
+
+void watchStorageReady(LogosModules&, std::function<void(bool)>) {
+}

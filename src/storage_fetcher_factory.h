@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -11,3 +12,5 @@ struct LogosModules;
 std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules);
 
 std::string makeNetwork(LogosModules& modules);
+
+void watchStorageReady(LogosModules& modules, std::function<void(bool)> onChange);

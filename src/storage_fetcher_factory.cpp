@@ -69,3 +69,20 @@ std::string makeNetwork(LogosModules& modules) {
 
     return r.value.get<std::string>();
 }
+
+// The factory is swapped for a mock in unit tests, which have no logos_sdk.h,
+// so we keep watchStorageReady here and don't rely on modules.modules_state.
+void watchStorageReady(LogosModules& modules, std::function<void(bool)> onChange) {
+    modules.modules_state.onModule_state_changed(
+        [onChange](const std::string& module,
+                   const LogosMap&, const LogosMap&,
+                   const std::string&,
+                   const std::string& newState,
+                   const LogosMap&, std::uint64_t) {
+            if (module == "storage_module") {
+                onChange(newState == "ready");
+            }
+        });
+
+    onChange(modules.modules_state.is_ready("storage_module"));
+}
