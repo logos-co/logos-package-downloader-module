@@ -10,6 +10,8 @@
 #include "storage_fetcher.h"
 #include "storage_fetcher_factory.h"
 
+#include "logos_sdk.h"
+
 #include <package_downloader_lib.h>
 
 #include <algorithm>
