@@ -341,7 +341,7 @@ sections:
       `.lgx` packages into a modules directory.
     steps:
       - title: "Build logosctl"
-        run: "nix build 'github:logos-co/logos-logoscore-cli?ref=63af9b9ed57552e12ada87e38085a017cb431988#ctl' --out-link ./logosctl"
+        run: "nix build 'github:logos-co/logos-logoscore-cli?ref=ea0b97ad59d30b33719489fb7b0ce6d5af937acd#ctl' --out-link ./logosctl"
         code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logosctl"
         check_file: "logosctl/bin/logosctl"
 
