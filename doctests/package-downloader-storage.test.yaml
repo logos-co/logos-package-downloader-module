@@ -56,7 +56,6 @@ sections:
             --data-dir="$(pwd)/release-data" \
             --api-port=8080 \
             --listen-port=8081 \
-            --disc-port=9091 \
             --nat=extip:127.0.0.1 \
             --no-bootstrap-node \
             --log-level=DEBUG \
@@ -70,7 +69,7 @@ sections:
           ready=false
           for _ in $(seq 60); do
             # Redirect output to /dev/null to get only the success not the output
-            if curl -sf http://127.0.0.1:8080/api/storage/v1/debug/info | jq -e .providerRecord > /dev/null; then
+            if curl -sf http://127.0.0.1:8080/api/storage/v1/debug/info | jq -e '.spr != ""' > /dev/null; then
               ready=true
               break
             fi
@@ -88,7 +87,6 @@ sections:
           storage --data-dir=./release-data \
             --api-port=8080 \
             --listen-port=8081 \
-            --disc-port=9091 \
             --nat=extip:127.0.0.1 \
             --no-bootstrap-node &
         expect_contains:
@@ -353,7 +351,7 @@ sections:
       - title: "Build and install the storage module"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-storage-module/30ade568b46d66e5aff28d917f079a84388f6a4f#lgx' -o storage-lgx
+          nix build 'github:logos-co/logos-storage-module/5eee8f7b4a97f3052c74cc87febcb25781529ffd#lgx' -o storage-lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules list
         code_block: |
@@ -412,7 +410,6 @@ sections:
               "network": "logos.dev",
               "nat": "extip:127.0.0.1",
               "listen-port": 8082,
-              "disc-port": 9092,
               "bootstrap-node": ["$(cat spr.txt)"]
           }
           EOF
@@ -423,7 +420,6 @@ sections:
               "network": "logos.dev",
               "nat": "extip:127.0.0.1",
               "listen-port": 8082,
-              "disc-port": 9092,
               "bootstrap-node": ["$(cat spr.txt)"]
           }
           EOF
