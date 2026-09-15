@@ -12,12 +12,15 @@ logos_test(
     NAME package_downloader_module_tests
     MODULE_SOURCES
         ../src/package_downloader_impl.cpp
+        ../src/storage_fetcher.cpp
     TEST_SOURCES
         main.cpp
         test_package_downloader.cpp
         package_downloader_events_test.cpp
+        storage_fetcher_test.cpp
     MOCK_C_SOURCES
         mocks/mock_package_downloader_lib.cpp
+        mocks/mock_storage_fetcher_factory.cpp
     EXTRA_INCLUDES
         stubs
 )

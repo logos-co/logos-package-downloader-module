@@ -1,0 +1,96 @@
+name: package-downloader Doc-Tests
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+concurrency:
+  group: doctests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doctests:
+    name: package-downloader doc-tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+    # Generous: the spec builds logoscore, lgpm, libstorage and this module,
+    # which on a cold cachix can take a while.
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: logos-co
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Resolve commit under test
+        id: commit
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            echo "Fork PR detected — doc-test will run against latest master."
+          else
+            echo "sha=${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run package-downloader doc-tests
+        run: |
+          # --continue-on-fail so the run walks every step and the published
+          # report is complete. The job still fails (non-zero exit) if any step
+          # failed; this only changes whether we stop early.
+          #
+          # No --output-dir: without it the spec runs in a temp workdir and
+          # still lands in the --report.
+
+          nix run github:logos-co/logos-doctest -- run \
+            doctests/package-downloader-storage.test.yaml \
+            --verbose \
+            --continue-on-fail \
+            --release-for logos-package-downloader-module=${{ steps.commit.outputs.sha }} \
+            --report "${{ runner.temp }}/doctest-report.html"
+
+      - name: Stage report for upload
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p report-out
+          # Name it index.html so the published directory URL renders directly.
+          if [ -f "${{ runner.temp }}/doctest-report.html" ]; then
+            cp "${{ runner.temp }}/doctest-report.html" report-out/index.html
+          else
+            echo "<h1>No report produced</h1>" > report-out/index.html
+          fi
+
+      - name: Upload package-downloader execution report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctest-report-${{ matrix.os }}
+          path: report-out/index.html
+          if-no-files-found: warn
+
+      - name: Verify markdown generation
+        run: |
+          for spec in package-downloader-storage; do
+            nix run github:logos-co/logos-doctest -- generate \
+              "doctests/$spec.test.yaml" \
+              --release-for logos-package-downloader-module=${{ steps.commit.outputs.sha }} \
+              -o "/tmp/$spec.md"
+            test -s "/tmp/$spec.md"
+          done
+          echo "Generated markdown successfully"

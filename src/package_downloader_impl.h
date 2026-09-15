@@ -1,12 +1,15 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <logos_json.h>
 #include <logos_module_context.h>
 
-namespace lgpd { class PackageDownloaderLib; }
+namespace lgpd { class PackageDownloaderLib; class Fetcher; }
 
 /**
  * Bridges the lgpd C++ library to the Logos module ABI.
@@ -99,5 +102,20 @@ protected:
     void onContextReady() override;
 
 private:
+    std::string storageNetwork() const;
+
+    void setStorageReady(bool ready);
+
     lgpd::PackageDownloaderLib* m_lib;
+
+    // Save the storage fetcher so it doesn't need
+    // to unsubscribe and resubscribe to storage_module events.
+    std::shared_ptr<lgpd::Fetcher> m_storageFetcher;
+
+    // Keep the readiness state of the storage module.
+    std::atomic<bool> m_storageReady{false};
+
+    // setStorageReady runs from the modules_state event thread and from
+    // onContextReady.
+    std::mutex m_storageMutex;
 };

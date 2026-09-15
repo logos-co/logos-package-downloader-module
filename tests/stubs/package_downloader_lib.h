@@ -8,13 +8,14 @@
 // disk-backed library.
 //
 // The real header lives in the `logos-package-downloader` repo; this
-// stub deliberately omits everything the impl doesn't touch (Fetcher,
-// Repository, kDefaultRepositoryUrl, the registry's list/refresh/find
+// stub deliberately omits everything the impl doesn't touch (Repository,
+// kDefaultRepositoryUrl, the registry's list/refresh/find
 // helpers, etc.). Keep it in sync with the methods invoked in
 // src/package_downloader_impl.cpp.
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace lgpd {
@@ -23,6 +24,25 @@ namespace lgpd {
 /// before they reach this callback, so the impl forwards each one straight
 /// to a `downloadProgress` event.
 using ProgressFn = std::function<void(std::uint64_t received, std::uint64_t total)>;
+
+struct FetchResult {
+    bool ok = false;
+    std::string error;
+};
+
+class Fetcher {
+public:
+    virtual ~Fetcher() = default;
+
+    virtual FetchResult get(const std::string& url, std::string& out) = 0;
+    virtual FetchResult getToFile(const std::string& url, const std::string& path) = 0;
+    virtual FetchResult getToFile(const std::string& url,
+                                  const std::string& path,
+                                  const ProgressFn& onProgress) {
+        (void)onProgress;
+        return getToFile(url, path);
+    }
+};
 
 class RepositoryRegistry {
 public:
@@ -59,6 +79,10 @@ public:
 
     std::string resolveDependenciesJson(const std::string& dependenciesJson,
                                         const std::string& installedPackagesJson = "");
+
+    void setStorageFetcher(std::shared_ptr<Fetcher> fetcher);
+
+    void setNetwork(const std::string& network);
 
 private:
     RepositoryRegistry registry_;
