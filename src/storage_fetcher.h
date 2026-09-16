@@ -26,9 +26,11 @@ public:
     using OnStorageDownloadManifestDone = std::function<bool(std::function<void(const std::string& payload)>)>;
     using NodeRunning = std::function<bool()>;
 
-    // Default timeout pour manifest: 30 seconds.
-    // Default timeout pour transfert: 10 minutes, comme le CURLOPT_TIMEOUT du
-    // fetcher https, pour que storage n'abandonne pas avant lui.
+    // Default timeout for the manifest: 5 minutes. A net against a lost event,
+    // not the bound of the retry: storage always emits
+    // storageDownloadManifestDone, failure included.
+    // Default timeout for the transfer: 10 minutes, same as the https fetcher's
+    // CURLOPT_TIMEOUT, so storage does not give up before it.
     StorageFetcher(
         DownloadToUrl downloadToUrl,
         OnStorageDownloadDone onStorageDownloadDone,
@@ -38,7 +40,7 @@ public:
         OnStorageDownloadManifestDone onStorageDownloadManifestDone,
         NodeRunning nodeRunning,
         std::chrono::milliseconds downloadTimeout = std::chrono::minutes(10),
-        std::chrono::milliseconds manifestTimeout = std::chrono::seconds(30));
+        std::chrono::milliseconds manifestTimeout = std::chrono::minutes(5));
 
     lgpd::FetchResult get(const std::string& cid, std::string& out) override;
     lgpd::FetchResult getToFile(const std::string& cid, const std::string& path) override;

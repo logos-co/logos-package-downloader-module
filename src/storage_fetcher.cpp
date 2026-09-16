@@ -154,7 +154,7 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
 
     // This is important to fetch the manifest before downloading the content.
     // The `fetchManifest` is async and will wait until the manifest retry mechanism
-    // is exhausted (up to 10 times).
+    // is exhausted (up to 10 times) or the timeout is reached.
     //
     // The manifest is needed anyway to do the download but this mechanism is not supported
     // by downloadToUrl, it relies on timeout.
