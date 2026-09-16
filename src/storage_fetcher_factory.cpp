@@ -52,11 +52,19 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
             return modules.storage_module.onStorageDownloadManifestDone(std::move(callback));
         };
 
+    StorageFetcher::NodeRunning nodeRunning =
+        [&modules]() {
+            const StdLogosResult r = modules.storage_module.state();
+
+            return r.success && r.value.is_string() && r.value.get<std::string>() == "running";
+        };
+
     // Stays alive for the whole process: the event callbacks still point at it.
     return std::shared_ptr<lgpd::Fetcher>(
         new StorageFetcher(downloadToUrl, onStorageDownloadDone,
                            onStorageDownloadProgress, downloadCancel,
-                           downloadManifest, onStorageDownloadManifestDone),
+                           downloadManifest, onStorageDownloadManifestDone,
+                           nodeRunning),
         [](lgpd::Fetcher*) {});
 }
 

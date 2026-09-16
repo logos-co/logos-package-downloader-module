@@ -24,6 +24,7 @@ public:
     using DownloadCancel = std::function<std::string(const std::string& cid)>;
     using DownloadManifest = std::function<std::string(const std::string& cid)>;
     using OnStorageDownloadManifestDone = std::function<bool(std::function<void(const std::string& payload)>)>;
+    using NodeRunning = std::function<bool()>;
 
     // Default timeout pour manifest: 30 seconds.
     // Default timeout pour transfert: 10 minutes, comme le CURLOPT_TIMEOUT du
@@ -35,6 +36,7 @@ public:
         DownloadCancel downloadCancel,
         DownloadManifest downloadManifest,
         OnStorageDownloadManifestDone onStorageDownloadManifestDone,
+        NodeRunning nodeRunning,
         std::chrono::milliseconds downloadTimeout = std::chrono::minutes(10),
         std::chrono::milliseconds manifestTimeout = std::chrono::seconds(30));
 
@@ -65,6 +67,7 @@ private:
     OnStorageDownloadDone m_onStorageDownloadDone;
     OnStorageDownloadProgress m_onStorageDownloadProgress;
     OnStorageDownloadManifestDone m_onStorageDownloadManifestDone;
+    NodeRunning m_nodeRunning;
 
     std::chrono::milliseconds m_downloadTimeout;
     std::chrono::milliseconds m_manifestTimeout;

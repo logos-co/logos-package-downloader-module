@@ -16,6 +16,7 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
                                OnStorageDownloadProgress onStorageDownloadProgress,
                                DownloadCancel downloadCancel, DownloadManifest downloadManifest,
                                OnStorageDownloadManifestDone onStorageDownloadManifestDone,
+                               NodeRunning nodeRunning,
                                std::chrono::milliseconds downloadTimeout,
                                std::chrono::milliseconds manifestTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
@@ -24,6 +25,7 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_onStorageDownloadDone(std::move(onStorageDownloadDone))
     , m_onStorageDownloadProgress(std::move(onStorageDownloadProgress))
     , m_onStorageDownloadManifestDone(std::move(onStorageDownloadManifestDone))
+    , m_nodeRunning(std::move(nodeRunning))
     , m_downloadTimeout(downloadTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
@@ -132,6 +134,10 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::s
 
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::string& path,
                                             const lgpd::ProgressFn& onProgress) {
+    if (!m_nodeRunning()) {
+        return {false, "the storage node is not running"};
+    }
+
     ensureSubscribed();
 
     if (!m_subscribed) {
