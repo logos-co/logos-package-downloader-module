@@ -58,6 +58,22 @@ sections:
         expect_contains:
           - "storage_module"
 
+      - title: "Build and install the package downloader"
+        text: |
+          The module under test, installed into the session so the daemon loads
+          this build rather than the copy bundled with logosctl.
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
+          ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file downloader-lgx/*.lgx
+          ./lgpm/bin/lgpm --modules-dir ./session/modules list
+        code_block: |
+          nix build 'github:logos-co/logos-package-downloader-module#lgx' -o downloader-lgx
+          lgpm --modules-dir ./session/modules --allow-unsigned install --file downloader-lgx/*.lgx
+          lgpm --modules-dir ./session/modules list
+        expect_contains:
+          - "package_downloader"
+
       - title: "Start the daemon on an empty home"
         text: |
           The downloader reads the node configuration from
