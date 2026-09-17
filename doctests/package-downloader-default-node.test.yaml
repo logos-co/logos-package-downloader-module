@@ -1,0 +1,142 @@
+name: "The Package Downloader starts its Storage Node using default configuration."
+output: package-downloader-default-node.md
+release: ""
+
+intro: |
+  The package downloader needs a storage node running before it can serve a
+  `logos:<cid>` url, and it brings that node up itself when the storage module
+  becomes available. This tutorial proves it with no pre-existing configuration shared
+  by the Storage UI.
+
+what_you_build: "A Logos daemon whose storage node was never started by hand."
+
+what_you_learn:
+  - How the downloader starts the storage node when the storage module loads
+  - Where the node configuration is read from, and what happens when there is none
+  - How the node is stopped and destroyed when the daemon goes down
+
+prerequisites:
+  - |
+    **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
+
+    ```bash
+    mkdir -p ~/.config/nix
+    echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+    ```
+
+    Verify: `nix flake --help >/dev/null 2>&1 && echo "Flakes enabled"`
+  - "**A Linux or macOS machine.**"
+  - "**`jq`** on your `PATH`. Verify: `jq --version`"
+
+sections:
+  - title: "Set up a Logos daemon"
+    step: true
+    text: |
+      `logosctl` is both the Logos daemon and its client; `lgpm` installs
+      `.lgx` packages into a modules directory.
+    steps:
+      - title: "Build logosctl"
+        run: "nix build 'github:logos-co/logos-logoscore-cli?ref=ea0b97ad59d30b33719489fb7b0ce6d5af937acd#ctl' --out-link ./logosctl"
+        code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logosctl"
+        check_file: "logosctl/bin/logosctl"
+
+      - title: "Build lgpm"
+        run: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
+        code_block: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
+        check_file: "lgpm/bin/lgpm"
+
+      - title: "Build and install the storage module"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-storage-module/5eee8f7b4a97f3052c74cc87febcb25781529ffd#lgx' -o storage-lgx
+          ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
+          ./lgpm/bin/lgpm --modules-dir ./session/modules list
+        code_block: |
+          nix build 'github:logos-co/logos-storage-module#lgx' -o storage-lgx
+          lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
+          lgpm --modules-dir ./session/modules list
+        expect_contains:
+          - "storage_module"
+
+      - title: "Start the daemon on an empty home"
+        text: |
+          The downloader reads the node configuration from
+          `$HOME/.logos_storage/config.json`, the file the Storage UI shares.
+          `HOME` points at an empty directory here, so there is none.
+        run: |
+          set -eu
+
+          mkdir -p home
+
+          sh -c 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'
+
+          sleep 2
+        code_block: "logosctl --config-dir ./session -D > logs.txt &"
+
+      - title: "There is no configuration to read"
+        run: |
+          set -eu
+          ls -a home
+          test ! -e home/.logos_storage/config.json && echo "no configuration"
+        code_block: "ls -a ~/.logos_storage"
+        expect_contains:
+          - "no configuration"
+
+  - title: "Load the modules"
+    step: true
+    text: |
+      `storage_module` is an optional dependency of the downloader: load the
+      downloader first, then the storage module.
+    steps:
+      - title: "Load package_downloader"
+        run: "./logosctl/bin/logosctl --config-dir ./session module load package_downloader"
+        code_block: "logosctl module load package_downloader"
+        expect_contains:
+          - "package_downloader"
+
+      - title: "Load the storage module"
+        run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load storage_module"
+        code_block: "logosctl module load storage_module"
+        expect_contains:
+          - "storage_module"
+
+  - title: "The node is up, and nobody started it"
+    step: true
+    steps:
+      - title: "The node is running"
+        text: |
+          No `init`, no `start`: loading the storage module is what makes the
+          downloader migrate the configuration, initialise the node and start
+          it.
+        run: |
+          set -eu
+          sleep 5
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
+        code_block: 'logosctl call storage_module state'
+        expect_contains:
+          - "running"
+
+      - title: "It runs on the default data directory"
+        text: |
+          With no configuration file, `migrateConfig` gives the default configuration, including
+          the data directory, under the shared storage home.
+        run: './logosctl/bin/logosctl --config-dir ./session call storage_module dataDir'
+        code_block: 'logosctl call storage_module dataDir'
+        expect_contains:
+          - ".logos_storage/data"
+
+      - title: "The repository exists on disk"
+        run: 'ls -d home/.logos_storage/data'
+        code_block: 'ls -d ~/.logos_storage/data'
+        expect_contains:
+          - ".logos_storage/data"
+
+  - title: "Shut down"
+    step: true
+    text: |
+      The downloader stops the node and destroys its context before the daemon
+      lets it go.
+    steps:
+      - title: "Stop the daemon"
+        run: './logosctl/bin/logosctl --config-dir ./session stop'
+        code_block: "logosctl stop"
