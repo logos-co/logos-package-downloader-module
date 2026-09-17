@@ -13,7 +13,7 @@ what_you_build: "A Logos daemon whose storage node was never started by hand."
 what_you_learn:
   - How the downloader starts the storage node when the storage module loads
   - Where the node configuration is read from, and what happens when there is none
-  - How the node is stopped and destroyed when the daemon goes down
+  - How the node is stopped and destroyed when the downloader is unloaded
 
 prerequisites:
   - |
@@ -131,11 +131,26 @@ sections:
         expect_contains:
           - ".logos_storage/data"
 
-  - title: "Shut down"
+  - title: "The downloader takes the node with it"
     step: true
     text: |
-      The downloader stops the node and destroys its context before the daemon
-      lets it go.
+      What it started, it stops: unloading the downloader stops the node and
+      destroys its context, and the storage module — still loaded — says so.
+    steps:
+      - title: "Unload the downloader"
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session module unload package_downloader
+          sleep 3
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
+        code_block: |
+          logosctl module unload package_downloader
+          logosctl call storage_module state
+        expect_contains:
+          - "destroyed"
+
+  - title: "Shut down"
+    step: true
     steps:
       - title: "Stop the daemon"
         run: './logosctl/bin/logosctl --config-dir ./session stop'
