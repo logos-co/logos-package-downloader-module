@@ -11,6 +11,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace fs = std::filesystem;
@@ -29,7 +30,9 @@ std::string sharedConfig(std::string& error) {
 
     const fs::path path = fs::path(home) / ".logos_storage" / "config.json";
 
-    if (!fs::exists(path)) {
+    std::error_code ec;
+
+    if (!fs::exists(path, ec)) {
         return {};
     }
 
