@@ -1,6 +1,8 @@
 #include "storage_node.h"
 
+#include <atomic>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 std::string startStorageNode(const StorageNode& node, bool& owned) {
@@ -37,9 +39,16 @@ std::string startStorageNode(const StorageNode& node, bool& owned) {
 }
 
 void stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
+    // Guard to prevent multiple stop calls from firing the callback multiple times.
+    auto pending = std::make_shared<std::atomic<bool>>(true);
+
     // The callback carries its own copy of destroy: it fires on the storageStop
     // event, long after this call returned.
-    node.onStopped([destroy = node.destroy, onDone](bool stopped) {
+    node.onStopped([destroy = node.destroy, onDone, pending](bool stopped) {
+        if (!pending->exchange(false)) {
+            return;
+        }
+
         if (stopped) {
             destroy();
         } else {
@@ -49,7 +58,8 @@ void stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
         onDone();
     });
 
-    if (!node.stop()) {
+    if (!node.stop() && pending->exchange(false)) {
+        // Refused: no event of ours will come.
         fprintf(stderr, "storage node: the module refused the stop command\n");
         onDone();
     }

@@ -182,3 +182,18 @@ LOGOS_TEST(stop_finishes_the_unload_when_the_stop_is_refused) {
     LOGOS_ASSERT_FALSE(fake.destroyCalled);
     LOGOS_ASSERT_TRUE(done);
 }
+
+// A stop refused because another one is already in flight still gets its event,
+// by then on a module the host has finished tearing down.
+LOGOS_TEST(stop_ignores_the_event_landing_after_a_refused_stop) {
+    FakeNode fake;
+    fake.state = "running";
+    fake.stopAccepted = false;
+    int done = 0;
+
+    stopStorageNode(fake.node(), [&done]() { ++done; });
+    fake.stopped(true);
+
+    LOGOS_ASSERT_FALSE(fake.destroyCalled);
+    LOGOS_ASSERT_EQ(done, 1);
+}
