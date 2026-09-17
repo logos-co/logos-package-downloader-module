@@ -136,6 +136,11 @@ StorageNode makeStorageNode(LogosModules& modules) {
             return std::string();
         }
 
+        if (!r.value.is_string()) {
+            error = "the storage module did not return a configuration";
+            return std::string();
+        }
+
         return r.value.get<std::string>();
     };
 
