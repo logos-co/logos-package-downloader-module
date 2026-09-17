@@ -124,7 +124,12 @@ PackageDownloaderImpl::PackageDownloaderImpl()
 
 // m_lib outlives us on purpose: the modules_state callback still uses it, and
 // nothing ever cancels that subscription.
-PackageDownloaderImpl::~PackageDownloaderImpl() = default;
+PackageDownloaderImpl::~PackageDownloaderImpl() {
+    // Cancels the existing subscription.
+    if (m_cancelSubscription) {
+        m_cancelSubscription();
+    }
+}
 
 void PackageDownloaderImpl::onContextReady() {
     // The codegen-generated provider has just populated the
@@ -162,7 +167,9 @@ void PackageDownloaderImpl::setStorageReady(bool ready) {
 
     if (!ready) {
         m_storageReady = false;
-        m_ownsStorageNode = false;
+        // Do not change ownership here.
+        // First come, first serve: the module that inits first the node
+        // will be responsible for freeing it.
         m_lib->setStorageFetcher(nullptr);
         return;
     }
@@ -200,6 +207,8 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
     m_lib->setStorageFetcher(nullptr);
 
     auto storageNode = makeStorageNode(modules());
+    m_cancelSubscription = storageNode.cancelSubscription;
+
     stopStorageNode(storageNode, [this]() {
         // The host waits for unloadFinished()
         unloadFinished();

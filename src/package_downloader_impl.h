@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -120,6 +121,9 @@ private:
 
     // The node is ours to destroy only when we are the one that created it.
     bool m_ownsStorageNode = false;
+
+    // Ends the storageStop subscription in aboutToUnload().
+    std::function<void()> m_cancelSubscription;
 
     // setStorageReady runs from the modules_state event thread and from
     // onContextReady.

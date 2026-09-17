@@ -17442,8 +17442,8 @@
       },
       "original": {
         "owner": "logos-co",
-        "ref": "feat/storage-fetcher",
         "repo": "logos-package-downloader",
+        "rev": "2cea89b3dfcdd6298517243c9be2ea2d9d6eb26c",
         "type": "github"
       }
     },

@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -177,8 +178,11 @@ StorageNode makeStorageNode(LogosModules& modules) {
         modules.storage_module.destroy();
     };
 
-    node.onStopped = [&modules](std::function<void(bool)> callback) {
-        return modules.storage_module.onStorageStop([callback](const std::string& payload) {
+    // Used to cancel the subscription to the end of the stop.
+    auto stopSubscription = std::make_shared<logos::SubHandle>();
+
+    node.onStopped = [&modules, stopSubscription](std::function<void(bool)> callback) {
+        *stopSubscription = modules.storage_module.onStorageStop([callback](const std::string& payload) {
             bool stopped = false;
 
             try {
@@ -189,6 +193,12 @@ StorageNode makeStorageNode(LogosModules& modules) {
 
             callback(stopped);
         });
+
+        return static_cast<bool>(*stopSubscription);
+    };
+
+    node.cancelSubscription = [stopSubscription]() {
+        stopSubscription->cancel();
     };
 
     return node;

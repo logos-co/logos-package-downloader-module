@@ -20,6 +20,9 @@ struct StorageNode {
     // Subscribes to the end of the stop. The callback tells whether the module
     // did stop the node, which is what makes it safe to destroy.
     std::function<bool(std::function<void(bool stopped)>)> onStopped;
+
+    // Cancels the subscription when the stop is done.
+    std::function<void()> cancelSubscription;
 };
 
 // Bring the node up: migrate the shared configuration, init and start. Returns
