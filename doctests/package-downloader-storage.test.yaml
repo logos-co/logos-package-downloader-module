@@ -1,4 +1,4 @@
-name: "Downloading a Package Over Logos Storage"
+name: "Downloading a package over Logos Storage using an existing configuration."
 output: package-downloader-storage.md
 release: ""
 
@@ -10,6 +10,7 @@ intro: |
 what_you_build: "A release-like environment to download a file over Logos Storage with the package downloader."
 
 what_you_learn:
+  - How the package downloader starts the storage node it needs
   - How a release publishes a package to a storage node
   - How a catalog advertises that package over two protocols in its `urls` entry
   - How to follow a download's progress with `logosctl watch`
@@ -335,6 +336,9 @@ sections:
       by default. So we start the daemon and load it first, to recreate that
       environment.
 
+      The downloader brings the storage node up itself, from
+      `$HOME/.logos_storage/config.json` — the file the Storage UI shares.
+
       `logosctl` is both the Logos daemon and its client; `lgpm` installs
       `.lgx` packages into a modules directory.
     steps:
@@ -361,11 +365,58 @@ sections:
         expect_contains:
           - "storage_module"
 
+      - title: "Write the node configuration"
+        text: |
+          The downloader reads this file when the storage module becomes
+          available, so it is written before the daemon starts.
+
+          By default, Logos Storage provides 2 available networks:
+            1. logos.dev
+            2. logos.test
+
+          Here we provide our own bootstrap node, which overrides the ones the
+          network preset would supply.
+
+          But we still provide a network name because the package downloader
+          needs to know which network to use.
+
+          Note: we could leave it empty, but naming a network makes sure the
+          path that compares network names is exercised.
+        run: |
+          set -eu
+
+          mkdir -p "$(pwd)/storage-data" "$(pwd)/home/.logos_storage"
+
+          cat > home/.logos_storage/config.json <<EOF
+          {
+              "data-dir": "$(pwd)/storage-data",
+              "log-level": "DEBUG",
+              "log-file": "$(pwd)/storage-data/storage.log",
+              "network": "logos.dev",
+              "nat": "extip:127.0.0.1",
+              "listen-port": 8082,
+              "bootstrap-node": ["$(cat spr.txt)"]
+          }
+          EOF
+        code_block: |
+          mkdir -p ~/.logos_storage
+
+          cat > ~/.logos_storage/config.json <<EOF
+          {
+              "data-dir": "$(pwd)/storage-data",
+              "network": "logos.dev",
+              "nat": "extip:127.0.0.1",
+              "listen-port": 8082,
+              "bootstrap-node": ["$(cat spr.txt)"]
+          }
+          EOF
+        check_file: "home/.logos_storage/config.json"
+
       - title: "Start the daemon"
         text: |
           The catalog is fetched with libcurl, which needs to be told to trust
           our self-signed certificate.
-        run: "sh -c 'SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'"
+        run: "sh -c 'HOME=\"$(pwd)/home\" SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'"
         code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D > logs.txt &"
 
       - title: "Load package_downloader"
@@ -383,59 +434,16 @@ sections:
         expect_contains:
           - "storage_module"
 
-      - title: "Write the node configuration"
+      - title: "The downloader starts the node"
         text: |
-          By default, Logos Storage provides 2 available networks:
-            1. logos.dev
-            2. logos.test
-
-          Here we provide our own bootstrap node, which overrides the ones the
-          network preset would supply.
-
-          But we still provide a network name because the package downloader
-          needs to know which network to use.
-
-          Note: we could leave it empty, but naming a network makes sure the
-          path that compares network names is exercised.
+          The downloader starts the node automatically when the storage module is loaded.
         run: |
           set -eu
-
-          mkdir -p "$(pwd)/storage-data"
-
-          cat > config.json <<EOF
-          {
-              "data-dir": "$(pwd)/storage-data",
-              "log-level": "DEBUG",
-              "log-file": "$(pwd)/storage-data/storage.log",
-              "network": "logos.dev",
-              "nat": "extip:127.0.0.1",
-              "listen-port": 8082,
-              "bootstrap-node": ["$(cat spr.txt)"]
-          }
-          EOF
-        code_block: |
-          cat > config.json <<EOF
-          {
-              "data-dir": "$(pwd)/storage-data",
-              "network": "logos.dev",
-              "nat": "extip:127.0.0.1",
-              "listen-port": 8082,
-              "bootstrap-node": ["$(cat spr.txt)"]
-          }
-          EOF
-        check_file: "config.json"
-
-      - title: "Initialise and start the node"
-        run: |
-          set -eu
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module init @config.json
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module start
           sleep 5
-        code_block: |
-          logosctl call storage_module init @config.json
-          logosctl call storage_module start
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
+        code_block: 'logosctl call storage_module state'
         expect_contains:
-          - '"result":true'
+          - "running"
 
       - title: "Check the network the node reports"
         text: |
@@ -647,20 +655,20 @@ sections:
       The downloader picks its storage fetcher up again when the module
       returns, with no restart of the daemon.
     steps:
-      - title: "Load and start the storage module again"
+      - title: "Load the storage module again"
+        text: |
+          The downloader starts the node again on its own, as it did the first
+          time.
         run: |
           set -eu
           ./logosctl/bin/logosctl --config-dir ./session module load storage_module
-          sleep 2
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module init @config.json
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module start
-          sleep 5
+          sleep 7
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
         code_block: |
           logosctl module load storage_module
-          logosctl call storage_module init @config.json
-          logosctl call storage_module start
+          logosctl call storage_module state
         expect_contains:
-          - '"result":true'
+          - "running"
 
       - title: "Take the HTTPS URL offline again"
         text: |

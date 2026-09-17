@@ -106,6 +106,8 @@ private:
 
     void setStorageReady(bool ready);
 
+    LogosShutdown aboutToUnload() override;
+
     lgpd::PackageDownloaderLib* m_lib;
 
     // Save the storage fetcher so it doesn't need
@@ -114,6 +116,9 @@ private:
 
     // Keep the readiness state of the storage module.
     std::atomic<bool> m_storageReady{false};
+
+    // The node is ours to destroy only when we are the one that created it.
+    bool m_ownsStorageNode = false;
 
     // setStorageReady runs from the modules_state event thread and from
     // onContextReady.

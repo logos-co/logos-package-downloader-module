@@ -2,11 +2,14 @@
 #
 # Execute the package-downloader doc-test end-to-end and regenerate its Markdown.
 #
-# There is 1 spec:
+# There are 2 specs:
 #   package-downloader-storage.test.yaml — packages this module as an .lgx,
 #       installs it with lgpm alongside the storage module, uploads it into a
 #       local storage node, serves a catalog advertising its CID over local
 #       HTTPS, and downloads it back through the storage network.
+#   package-downloader-default-node.test.yaml — loads the downloader and the
+#       storage module on an empty home, and checks the node the downloader
+#       starts by itself, on the module's default configuration.
 #
 # The runner is the shared `doctest` CLI
 # (https://github.com/logos-co/logos-doctest), invoked directly via its flake.

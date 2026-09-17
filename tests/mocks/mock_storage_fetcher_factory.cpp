@@ -10,3 +10,11 @@ std::string makeNetwork(LogosModules&) {
 
 void watchStorageReady(LogosModules&, std::function<void(bool)>) {
 }
+
+StorageNode makeStorageNode(LogosModules&) {
+    StorageNode node;
+
+    node.state = []() { return std::string("running"); };
+
+    return node;
+}

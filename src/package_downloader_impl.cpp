@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -160,12 +161,43 @@ void PackageDownloaderImpl::setStorageReady(bool ready) {
         return;
     }
 
+    auto storageNode = makeStorageNode(modules());
+
+    const std::string error = startStorageNode(storageNode, m_ownsStorageNode);
+
+    if (!error.empty()) {
+        fprintf(stderr, "PackageDownloaderImpl: the storage node did not start: %s\n",
+                error.c_str());
+
+        m_storageReady = false;
+        m_lib->setStorageFetcher(nullptr);
+        return;
+    }
+
     if (!m_storageFetcher) {
         m_storageFetcher = makeStorageFetcher(modules());
     }
 
     m_lib->setStorageFetcher(m_storageFetcher);
     m_storageReady = true;
+}
+
+LogosShutdown PackageDownloaderImpl::aboutToUnload() {
+    std::lock_guard<std::mutex> lock(m_storageMutex);
+
+    if (!m_ownsStorageNode) {
+        return LogosShutdown::Synchronous;
+    }
+
+    m_ownsStorageNode = false;
+
+    auto storageNode = makeStorageNode(modules());
+    stopStorageNode(storageNode, [this]() {
+        // The host waits for unloadFinished()
+        unloadFinished();
+    });
+
+    return LogosShutdown::Asynchronous;
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
