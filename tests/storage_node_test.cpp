@@ -18,6 +18,8 @@ struct FakeNode {
     bool startAccepted = true;
     bool stopAccepted = true;
     bool subscriptionAccepted = true;
+    // Simulates the module stopping before the subscription fires.
+    bool stopFiresImmediately = false;
 
     // The storageStop subscriber the lifecycle installed, fired by the tests.
     std::function<void(bool)> stopped;
@@ -48,7 +50,13 @@ struct FakeNode {
             return startAccepted;
         };
 
-        n.stop = [this]() { return stopAccepted; };
+        n.stop = [this]() {
+            if (stopAccepted && stopFiresImmediately && stopped) {
+                stopped(true);
+            }
+
+            return stopAccepted;
+        };
 
         n.destroy = [this]() { destroyCalled = true; };
 
@@ -210,6 +218,19 @@ LOGOS_TEST(stop_finishes_the_unload_when_the_event_cannot_be_subscribed) {
 
     LOGOS_ASSERT_FALSE(waiting);
     LOGOS_ASSERT_FALSE(fake.destroyCalled);
+    LOGOS_ASSERT_TRUE(done);
+}
+
+LOGOS_TEST(stop_does_not_wait_when_the_module_answers_inline) {
+    FakeNode fake;
+    fake.state = "stopped";
+    fake.stopFiresImmediately = true;
+    bool done = false;
+
+    const bool waiting = stopStorageNode(fake.node(), [&done]() { done = true; });
+
+    LOGOS_ASSERT_FALSE(waiting);
+    LOGOS_ASSERT_TRUE(fake.destroyCalled);
     LOGOS_ASSERT_TRUE(done);
 }
 

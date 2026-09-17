@@ -205,11 +205,17 @@ void PackageDownloaderImpl::setStorageReady(bool ready) {
 LogosShutdown PackageDownloaderImpl::aboutToUnload() {
     std::lock_guard<std::mutex> lock(m_storageMutex);
 
+    m_unloading = true;
+
+    if (m_cancelWatchSubscription) {
+        m_cancelWatchSubscription();
+        m_cancelWatchSubscription = {};
+    }
+
     if (!m_ownsStorageNode) {
         return LogosShutdown::Synchronous;
     }
 
-    m_unloading = true;
     m_ownsStorageNode = false;
     m_storageReady = false;
     m_lib->setStorageFetcher(nullptr);

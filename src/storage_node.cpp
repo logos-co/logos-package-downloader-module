@@ -69,8 +69,8 @@ bool stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
     }
 
     if (stopping && subscribed) {
-        // The onDone callback will be fired by the subscription.
-        return true;
+        // Should be true here: the subscription fires onDone when the node stops.
+        return pending->load();
     }
 
     // If another stop call is in progress, it will be in charge of firing the callback.

@@ -131,7 +131,9 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
             }
         });
 
-    onChange(modules.modules_state.is_ready("storage_module"));
+    if (modules.modules_state.is_ready("storage_module")) {
+        onChange(true);
+    }
 
     return [subscription]() {
         subscription.cancel();
