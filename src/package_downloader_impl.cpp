@@ -196,6 +196,8 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
     }
 
     m_ownsStorageNode = false;
+    m_storageReady = false;
+    m_lib->setStorageFetcher(nullptr);
 
     auto storageNode = makeStorageNode(modules());
     stopStorageNode(storageNode, [this]() {
