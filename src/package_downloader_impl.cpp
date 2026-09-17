@@ -162,6 +162,7 @@ void PackageDownloaderImpl::setStorageReady(bool ready) {
 
     if (!ready) {
         m_storageReady = false;
+        m_ownsStorageNode = false;
         m_lib->setStorageFetcher(nullptr);
         return;
     }
