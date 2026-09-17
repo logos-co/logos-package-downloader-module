@@ -12,7 +12,7 @@ std::string startStorageNode(const StorageNode& node, bool& owned) {
         return "the storage module state is unknown";
     }
 
-    if (state == "running" || state == "starting") {
+    if (state == "running" || state == "starting" || state == "stopping") {
         return {};
     }
 

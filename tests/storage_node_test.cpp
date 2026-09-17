@@ -88,6 +88,18 @@ LOGOS_TEST(start_leaves_a_node_someone_else_is_starting_alone) {
     LOGOS_ASSERT_FALSE(owned);
 }
 
+LOGOS_TEST(start_leaves_a_node_someone_else_is_stopping_alone) {
+    FakeNode fake;
+    fake.state = "stopping";
+    bool owned = false;
+
+    const std::string error = startStorageNode(fake.node(), owned);
+
+    LOGOS_ASSERT_TRUE(error.empty());
+    LOGOS_ASSERT_FALSE(fake.startCalled);
+    LOGOS_ASSERT_FALSE(owned);
+}
+
 LOGOS_TEST(start_inits_and_starts_a_destroyed_node) {
     FakeNode fake;
     fake.state = "destroyed";

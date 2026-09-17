@@ -19,17 +19,28 @@ namespace {
 constexpr int64_t chunkSize = 65536;
 
 // The node configuration, shared with the Storage UI.
-std::string sharedConfig() {
+std::string sharedConfig(std::string& error) {
     const char* home = std::getenv("HOME");
 
     if (!home || !*home) {
         return {};
     }
 
-    std::ifstream file(fs::path(home) / ".logos_storage" / "config.json");
+    const fs::path path = fs::path(home) / ".logos_storage" / "config.json";
+
+    if (!fs::exists(path)) {
+        return {};
+    }
+
+    std::ifstream file(path);
+
+    if (!file) {
+        error = "cannot read " + path.string();
+        return {};
+    }
+
     std::ostringstream config;
 
-    // If the file fails to open, the stream remains empty.
     config << file.rdbuf();
 
     return config.str();
@@ -129,7 +140,13 @@ StorageNode makeStorageNode(LogosModules& modules) {
     };
 
     node.migrateConfig = [&modules](std::string& error) {
-        const StdLogosResult r = modules.storage_module.migrateConfig(sharedConfig());
+        const std::string config = sharedConfig(error);
+
+        if (!error.empty()) {
+            return std::string();
+        }
+
+        const StdLogosResult r = modules.storage_module.migrateConfig(config);
 
         if (!r.success) {
             error = r.error;
