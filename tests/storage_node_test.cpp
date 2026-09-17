@@ -17,6 +17,7 @@ struct FakeNode {
     bool initAccepted = true;
     bool startAccepted = true;
     bool stopAccepted = true;
+    bool subscriptionAccepted = true;
 
     // The storageStop subscriber the lifecycle installed, fired by the tests.
     std::function<void(bool)> stopped;
@@ -53,7 +54,7 @@ struct FakeNode {
 
         n.onStopped = [this](std::function<void(bool)> callback) {
             stopped = std::move(callback);
-            return true;
+            return subscriptionAccepted;
         };
 
         return n;
@@ -175,6 +176,20 @@ LOGOS_TEST(stop_finishes_the_unload_when_the_stop_is_refused) {
     FakeNode fake;
     fake.state = "running";
     fake.stopAccepted = false;
+    bool done = false;
+
+    stopStorageNode(fake.node(), [&done]() { done = true; });
+
+    LOGOS_ASSERT_FALSE(fake.destroyCalled);
+    LOGOS_ASSERT_TRUE(done);
+}
+
+// Nothing would ever report the end of the stop, so the host is released now
+// rather than left to wait out its grace period.
+LOGOS_TEST(stop_finishes_the_unload_when_the_event_cannot_be_subscribed) {
+    FakeNode fake;
+    fake.state = "running";
+    fake.subscriptionAccepted = false;
     bool done = false;
 
     stopStorageNode(fake.node(), [&done]() { done = true; });

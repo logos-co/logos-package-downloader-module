@@ -44,7 +44,7 @@ void stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
 
     // The callback carries its own copy of destroy: it fires on the storageStop
     // event, long after this call returned.
-    node.onStopped([destroy = node.destroy, onDone, pending](bool stopped) {
+    const bool subscribed = node.onStopped([destroy = node.destroy, onDone, pending](bool stopped) {
         if (!pending->exchange(false)) {
             return;
         }
@@ -58,9 +58,23 @@ void stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
         onDone();
     });
 
-    if (!node.stop() && pending->exchange(false)) {
-        // Refused: no event of ours will come.
+    if (!subscribed) {
+        fprintf(stderr, "storage node: the subscription failed, the stop command will not be acknowledged\n");
+    }
+
+    const bool stopping = node.stop();
+
+    if (!stopping) {
         fprintf(stderr, "storage node: the module refused the stop command\n");
+    }
+
+    if (stopping && subscribed) {
+        // The onDone callback will be fired by the subscription.
+        return;
+    }
+
+    // If another stop call is in progress, it will be in charge of firing the callback.
+    if (pending->exchange(false)) {
         onDone();
     }
 }
