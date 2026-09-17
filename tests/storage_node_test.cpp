@@ -165,8 +165,10 @@ LOGOS_TEST(stop_destroys_the_node_once_the_module_reports_it_stopped) {
     fake.state = "running";
     bool done = false;
 
-    stopStorageNode(fake.node(), [&done]() { done = true; });
+    const bool waiting = stopStorageNode(fake.node(), [&done]() { done = true; });
     fake.stopped(true);
+
+    LOGOS_ASSERT_TRUE(waiting);
 
     LOGOS_ASSERT_TRUE(fake.destroyCalled);
     LOGOS_ASSERT_TRUE(done);
@@ -196,16 +198,17 @@ LOGOS_TEST(stop_finishes_the_unload_when_the_stop_is_refused) {
     LOGOS_ASSERT_TRUE(done);
 }
 
-// Nothing would ever report the end of the stop, so the host is released now
-// rather than left to wait out its grace period.
+// Nothing would ever report the end of the stop, so it is done inline and the
+// caller is told not to wait.
 LOGOS_TEST(stop_finishes_the_unload_when_the_event_cannot_be_subscribed) {
     FakeNode fake;
     fake.state = "running";
     fake.subscriptionAccepted = false;
     bool done = false;
 
-    stopStorageNode(fake.node(), [&done]() { done = true; });
+    const bool waiting = stopStorageNode(fake.node(), [&done]() { done = true; });
 
+    LOGOS_ASSERT_FALSE(waiting);
     LOGOS_ASSERT_FALSE(fake.destroyCalled);
     LOGOS_ASSERT_TRUE(done);
 }

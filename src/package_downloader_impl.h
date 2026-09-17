@@ -125,6 +125,10 @@ private:
     // Ends the storageStop subscription in aboutToUnload().
     std::function<void()> m_cancelSubscription;
 
+    std::function<void()> m_cancelWatchSubscription;
+
+    bool m_unloading = false;
+
     // setStorageReady runs from the modules_state event thread and from
     // onContextReady.
     std::mutex m_storageMutex;

@@ -122,10 +122,13 @@ PackageDownloaderImpl::PackageDownloaderImpl()
     // XDG config file once in the lib's constructor.
 }
 
-// m_lib outlives us on purpose: the modules_state callback still uses it, and
-// nothing ever cancels that subscription.
+// m_lib is not deleted: the module is `concurrency:"multi"`, so a download
+// dispatched on another thread can still be inside it while we are torn down.
 PackageDownloaderImpl::~PackageDownloaderImpl() {
-    // Cancels the existing subscription.
+    if (m_cancelWatchSubscription) {
+        m_cancelWatchSubscription();
+    }
+
     if (m_cancelSubscription) {
         m_cancelSubscription();
     }
@@ -157,13 +160,17 @@ void PackageDownloaderImpl::onContextReady() {
     delete m_lib;
     m_lib = replacement;
 
-    watchStorageReady(modules(), [this](bool ready) {
+    m_cancelWatchSubscription = watchStorageReady(modules(), [this](bool ready) {
         setStorageReady(ready);
     });
 }
 
 void PackageDownloaderImpl::setStorageReady(bool ready) {
     std::lock_guard<std::mutex> lock(m_storageMutex);
+
+    if (m_unloading) {
+        return;
+    }
 
     if (!ready) {
         m_storageReady = false;
@@ -202,6 +209,7 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
         return LogosShutdown::Synchronous;
     }
 
+    m_unloading = true;
     m_ownsStorageNode = false;
     m_storageReady = false;
     m_lib->setStorageFetcher(nullptr);
@@ -209,10 +217,16 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
     auto storageNode = makeStorageNode(modules());
     m_cancelSubscription = storageNode.cancelSubscription;
 
-    stopStorageNode(storageNode, [this]() {
+    const bool waiting = stopStorageNode(storageNode, [this]() {
         // The host waits for unloadFinished()
         unloadFinished();
     });
+
+    // A stop that never started has already called unloadFinished(), which some
+    // hosts only start listening for once this returns. Nothing to wait for.
+    if (!waiting) {
+        return LogosShutdown::Synchronous;
+    }
 
     return LogosShutdown::Asynchronous;
 }

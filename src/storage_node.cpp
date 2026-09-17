@@ -38,7 +38,7 @@ std::string startStorageNode(const StorageNode& node, bool& owned) {
     return {};
 }
 
-void stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
+bool stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
     // Guard to prevent multiple stop calls from firing the callback multiple times.
     auto pending = std::make_shared<std::atomic<bool>>(true);
 
@@ -70,11 +70,13 @@ void stopStorageNode(const StorageNode& node, std::function<void()> onDone) {
 
     if (stopping && subscribed) {
         // The onDone callback will be fired by the subscription.
-        return;
+        return true;
     }
 
     // If another stop call is in progress, it will be in charge of firing the callback.
     if (pending->exchange(false)) {
         onDone();
     }
+
+    return false;
 }

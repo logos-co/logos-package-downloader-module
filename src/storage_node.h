@@ -32,4 +32,5 @@ std::string startStorageNode(const StorageNode& node, bool& owned);
 // Stop the node, then destroy its context once the module reports the stop is
 // done — destroying a node still running can cost the repository. `onDone` runs
 // on the module's event thread, and runs once even when nothing was stopped.
-void stopStorageNode(const StorageNode& node, std::function<void()> onDone);
+// Returns whether `onDone` is still to come.
+bool stopStorageNode(const StorageNode& node, std::function<void()> onDone);

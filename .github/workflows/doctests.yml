@@ -57,12 +57,17 @@ jobs:
           # No --output-dir: without it each spec runs in a temp workdir and
           # still lands in the --report, one dropdown entry per spec.
 
+          release_for=()
+          if [ -n "${{ steps.commit.outputs.sha }}" ]; then
+            release_for=(--release-for "logos-package-downloader-module=${{ steps.commit.outputs.sha }}")
+          fi
+
           nix run github:logos-co/logos-doctest -- run \
             doctests/package-downloader-storage.test.yaml \
             doctests/package-downloader-default-node.test.yaml \
             --verbose \
             --continue-on-fail \
-            --release-for logos-package-downloader-module=${{ steps.commit.outputs.sha }} \
+            "${release_for[@]}" \
             --report "${{ runner.temp }}/doctest-report.html"
 
       - name: Stage report for upload
@@ -87,10 +92,15 @@ jobs:
 
       - name: Verify markdown generation
         run: |
+          release_for=()
+          if [ -n "${{ steps.commit.outputs.sha }}" ]; then
+            release_for=(--release-for "logos-package-downloader-module=${{ steps.commit.outputs.sha }}")
+          fi
+
           for spec in package-downloader-storage package-downloader-default-node; do
             nix run github:logos-co/logos-doctest -- generate \
               "doctests/$spec.test.yaml" \
-              --release-for logos-package-downloader-module=${{ steps.commit.outputs.sha }} \
+              "${release_for[@]}" \
               -o "/tmp/$spec.md"
             test -s "/tmp/$spec.md"
           done

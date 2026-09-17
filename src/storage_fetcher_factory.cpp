@@ -119,8 +119,8 @@ std::string makeNetwork(LogosModules& modules) {
 
 // The factory is swapped for a mock in unit tests, which have no logos_sdk.h,
 // so we keep watchStorageReady here and don't rely on modules.modules_state in the mock.
-void watchStorageReady(LogosModules& modules, std::function<void(bool)> onChange) {
-    modules.modules_state.onModule_state_changed(
+std::function<void()> watchStorageReady(LogosModules& modules, std::function<void(bool)> onChange) {
+    const logos::SubHandle subscription = modules.modules_state.onModule_state_changed(
         [onChange](const std::string& module,
                    const LogosMap&, const LogosMap&,
                    const std::string&,
@@ -132,6 +132,10 @@ void watchStorageReady(LogosModules& modules, std::function<void(bool)> onChange
         });
 
     onChange(modules.modules_state.is_ready("storage_module"));
+
+    return [subscription]() {
+        subscription.cancel();
+    };
 }
 
 StorageNode makeStorageNode(LogosModules& modules) {
