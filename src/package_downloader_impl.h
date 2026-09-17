@@ -91,6 +91,7 @@ public:
 logos_events:
     void catalogChanged();
     void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total);
+    void downloadDone(const std::string& packageName, const std::string& source);
 
 protected:
     // Fires once, after the framework has populated the LogosModuleContext

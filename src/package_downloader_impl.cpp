@@ -82,8 +82,13 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
     }
 
     std::string err;
+    std::string source;
     std::string path = lib->downloadPackage(repoUrlOrName, packageName, err,
-                                            version, rootHash, "", progressFn);
+                                            version, rootHash, "", progressFn, &source);
+
+    if (!source.empty()) {
+        result["source"] = source;
+    }
 
     if (path.empty()) {
         std::string msg = std::string("download failed for '") + packageName + "'";
@@ -250,11 +255,18 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& rootHash) {
     m_lib->setNetwork(storageNetwork());
 
-    return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
-                          [this](const std::string& name, std::uint64_t received,
-                                 std::uint64_t total) {
-                              downloadProgress(name, received, total);
-                          });
+    LogosMap result = pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
+                                     [this](const std::string& name, std::uint64_t received,
+                                            std::uint64_t total) {
+                                         downloadProgress(name, received, total);
+                                     });
+
+    // A successful download contains the path where the package was downloaded.
+    if (result.contains("path")) {
+        downloadDone(packageName, result.value("source", ""));
+    }
+
+    return result;
 }
 
 LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson) {
@@ -333,12 +345,19 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
             std::string version  = entry.value("version", "");
             std::string rootHash = entry.value("rootHash", "");
             std::string repoUrl  = entry.value("repositoryUrl", "");
-            results.push_back(pinnedDownload(
+            LogosMap downloaded = pinnedDownload(
                 m_lib, repoUrl, name, version, rootHash,
                 [this](const std::string& pkg, std::uint64_t received,
                        std::uint64_t total) {
                     downloadProgress(pkg, received, total);
-                }));
+                });
+
+            // A successful download contains the path where the package was downloaded.
+            if (downloaded.contains("path")) {
+                downloadDone(name, downloaded.value("source", ""));
+            }
+
+            results.push_back(std::move(downloaded));
         }
     } catch (const std::exception& ex) {
         pushError(std::string("downloader exception: ") + ex.what());

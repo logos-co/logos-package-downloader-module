@@ -54,11 +54,12 @@ jobs:
           # report is complete. The job still fails (non-zero exit) if any step
           # failed; this only changes whether we stop early.
           #
-          # No --output-dir: without it the spec runs in a temp workdir and
-          # still lands in the --report.
+          # No --output-dir: without it each spec runs in a temp workdir and
+          # still lands in the --report, one dropdown entry per spec.
 
           nix run github:logos-co/logos-doctest -- run \
             doctests/package-downloader-storage.test.yaml \
+            doctests/package-downloader-default-node.test.yaml \
             --verbose \
             --continue-on-fail \
             --release-for logos-package-downloader-module=${{ steps.commit.outputs.sha }} \
@@ -86,7 +87,7 @@ jobs:
 
       - name: Verify markdown generation
         run: |
-          for spec in package-downloader-storage; do
+          for spec in package-downloader-storage package-downloader-default-node; do
             nix run github:logos-co/logos-doctest -- generate \
               "doctests/$spec.test.yaml" \
               --release-for logos-package-downloader-module=${{ steps.commit.outputs.sha }} \

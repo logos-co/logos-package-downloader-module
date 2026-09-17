@@ -75,7 +75,8 @@ public:
                                 const std::string& version = "",
                                 const std::string& rootHash = "",
                                 const std::string& outputDir = "",
-                                const ProgressFn& onProgress = {});
+                                const ProgressFn& onProgress = {},
+                                std::string* source = nullptr);
 
     std::string resolveDependenciesJson(const std::string& dependenciesJson,
                                         const std::string& installedPackagesJson = "");
