@@ -1,8 +1,13 @@
 #include "storage_node.h"
 
+#include <cstdio>
 #include <string>
 
 std::string startStorageNode(const StorageNode& node) {
+    if (node.isRunning()) {
+        return {};
+    }
+
     std::string error;
     const std::string config = node.migrateConfig(error);
 
@@ -10,11 +15,22 @@ std::string startStorageNode(const StorageNode& node) {
         return error;
     }
 
+    // If the init fails it might mean 2 different things:
+    // 1. Real failure
+    // 2. The context was created by another consumer
+    //
+    // If it is a real failure, the start command just below will fail
+    // and return an error.
+    //
+    // If the context was created by another consumer, the start command
+    // will succeed and the node will start if it is not already running.
     if (!node.init(config)) {
-        return "the storage module refused the configuration";
+        fprintf(stderr, "storage node: init failed.\n");
     }
 
-    if (!node.start()) {
+    // If the start fails we check if the node is running, to distinguish
+    // between a real failure and a node started by another consumer.
+    if (!node.start() && !node.isRunning()) {
         return "the storage module refused the start command";
     }
 

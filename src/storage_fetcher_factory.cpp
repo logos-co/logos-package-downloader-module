@@ -140,6 +140,10 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
 StorageNode makeStorageNode(LogosModules& modules) {
     StorageNode node;
 
+    node.isRunning = [&modules]() {
+        return modules.storage_module.isRunning();
+    };
+
     node.migrateConfig = [&modules](std::string& error) {
         const std::string config = sharedConfig(error);
 

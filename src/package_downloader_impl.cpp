@@ -146,6 +146,11 @@ void PackageDownloaderImpl::onContextReady() {
     // constructor. Safe to delete-and-replace here because the
     // framework guarantees onContextReady fires before any method
     // dispatch — no fetches or registry mutations have hit m_lib yet.
+
+    m_cancelWatchSubscription = watchStorageReady(modules(), [this](bool ready) {
+        setStorageReady(ready);
+    });
+
     if (instancePersistencePath().empty()) return;
     const std::string newPath =
         (fs::path(instancePersistencePath()) / "repositories.json").string();
@@ -156,10 +161,6 @@ void PackageDownloaderImpl::onContextReady() {
     auto* replacement = new lgpd::PackageDownloaderLib(newPath);
     delete m_lib;
     m_lib = replacement;
-
-    m_cancelWatchSubscription = watchStorageReady(modules(), [this](bool ready) {
-        setStorageReady(ready);
-    });
 }
 
 void PackageDownloaderImpl::setStorageReady(bool ready) {
