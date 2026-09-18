@@ -147,20 +147,21 @@ void PackageDownloaderImpl::onContextReady() {
     // framework guarantees onContextReady fires before any method
     // dispatch — no fetches or registry mutations have hit m_lib yet.
 
+    if (!instancePersistencePath().empty()) {
+        const std::string newPath =
+            (fs::path(instancePersistencePath()) / "repositories.json").string();
+        // Construct the replacement BEFORE freeing the old one: if the
+        // constructor throws (e.g. bad_alloc), m_lib still points at the
+        // valid XDG-seeded instance instead of being left dangling for the
+        // destructor to double-free.
+        auto* replacement = new lgpd::PackageDownloaderLib(newPath);
+        delete m_lib;
+        m_lib = replacement;
+    }
+
     m_cancelWatchSubscription = watchStorageReady(modules(), [this](bool ready) {
         setStorageReady(ready);
     });
-
-    if (instancePersistencePath().empty()) return;
-    const std::string newPath =
-        (fs::path(instancePersistencePath()) / "repositories.json").string();
-    // Construct the replacement BEFORE freeing the old one: if the
-    // constructor throws (e.g. bad_alloc), m_lib still points at the
-    // valid XDG-seeded instance instead of being left dangling for the
-    // destructor to double-free.
-    auto* replacement = new lgpd::PackageDownloaderLib(newPath);
-    delete m_lib;
-    m_lib = replacement;
 }
 
 void PackageDownloaderImpl::setStorageReady(bool ready) {
