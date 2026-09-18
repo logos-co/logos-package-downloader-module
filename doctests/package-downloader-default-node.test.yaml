@@ -13,7 +13,7 @@ what_you_build: "A Logos daemon whose storage node was never started by hand."
 what_you_learn:
   - How the downloader starts the storage node when the storage module loads
   - Where the node configuration is read from, and what happens when there is none
-  - How the node is stopped and destroyed when the downloader is unloaded
+  - Logos environment (basecamp or logosctl) takes care of cleaning up the node
 
 prerequisites:
   - |
@@ -127,10 +127,10 @@ sections:
         run: |
           set -eu
           sleep 5
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
-        code_block: 'logosctl call storage_module state'
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+        code_block: 'logosctl call storage_module isRunning'
         expect_contains:
-          - "running"
+          - "true"
 
       - title: "It runs on the default data directory"
         text: |
@@ -147,23 +147,24 @@ sections:
         expect_contains:
           - ".logos_storage/data"
 
-  - title: "The downloader takes the node with it"
+  - title: "The node outlives the downloader"
     step: true
     text: |
-      What it started, it stops: unloading the downloader stops the node and
-      destroys its context, and the storage module — still loaded — says so.
+      The node is shared, so nobody takes it down behind another consumer's
+      back. The downloader leaves without stopping anything, and the node stays
+      up for whoever else is using it.
     steps:
       - title: "Unload the downloader"
         run: |
           set -eu
           ./logosctl/bin/logosctl --config-dir ./session module unload package_downloader
           sleep 3
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
         code_block: |
           logosctl module unload package_downloader
-          logosctl call storage_module state
+          logosctl call storage_module isRunning
         expect_contains:
-          - "destroyed"
+          - "true"
 
   - title: "Shut down"
     step: true

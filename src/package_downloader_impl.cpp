@@ -129,9 +129,6 @@ PackageDownloaderImpl::~PackageDownloaderImpl() {
         m_cancelWatchSubscription();
     }
 
-    if (m_cancelSubscription) {
-        m_cancelSubscription();
-    }
 }
 
 void PackageDownloaderImpl::onContextReady() {
@@ -168,10 +165,6 @@ void PackageDownloaderImpl::onContextReady() {
 void PackageDownloaderImpl::setStorageReady(bool ready) {
     std::lock_guard<std::mutex> lock(m_storageMutex);
 
-    if (m_unloading) {
-        return;
-    }
-
     if (!ready) {
         m_storageReady = false;
         // Do not change ownership here.
@@ -183,7 +176,7 @@ void PackageDownloaderImpl::setStorageReady(bool ready) {
 
     auto storageNode = makeStorageNode(modules());
 
-    const std::string error = startStorageNode(storageNode, m_ownsStorageNode);
+    const std::string error = startStorageNode(storageNode);
 
     if (!error.empty()) {
         fprintf(stderr, "PackageDownloaderImpl: the storage node did not start: %s\n",
@@ -200,42 +193,6 @@ void PackageDownloaderImpl::setStorageReady(bool ready) {
 
     m_lib->setStorageFetcher(m_storageFetcher);
     m_storageReady = true;
-}
-
-LogosShutdown PackageDownloaderImpl::aboutToUnload() {
-    if (m_cancelWatchSubscription) {
-        m_cancelWatchSubscription();
-        m_cancelWatchSubscription = {};
-    }
-
-    // Need to lock the mutex to prevent concurrent access to m_unloading.
-    std::lock_guard<std::mutex> lock(m_storageMutex);
-
-    m_unloading = true;
-
-    if (!m_ownsStorageNode) {
-        return LogosShutdown::Synchronous;
-    }
-
-    m_ownsStorageNode = false;
-    m_storageReady = false;
-    m_lib->setStorageFetcher(nullptr);
-
-    auto storageNode = makeStorageNode(modules());
-    m_cancelSubscription = storageNode.cancelSubscription;
-
-    const bool waiting = stopStorageNode(storageNode, [this]() {
-        // The host waits for unloadFinished()
-        unloadFinished();
-    });
-
-    // A stop that never started has already called unloadFinished(), which some
-    // hosts only start listening for once this returns. Nothing to wait for.
-    if (!waiting) {
-        return LogosShutdown::Synchronous;
-    }
-
-    return LogosShutdown::Asynchronous;
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────

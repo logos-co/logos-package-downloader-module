@@ -440,10 +440,10 @@ sections:
         run: |
           set -eu
           sleep 5
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
-        code_block: 'logosctl call storage_module state'
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+        code_block: 'logosctl call storage_module isRunning'
         expect_contains:
-          - "running"
+          - "true"
 
       - title: "Check the network the node reports"
         text: |
@@ -663,12 +663,12 @@ sections:
           set -eu
           ./logosctl/bin/logosctl --config-dir ./session module load storage_module
           sleep 7
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module state
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
         code_block: |
           logosctl module load storage_module
-          logosctl call storage_module state
+          logosctl call storage_module isRunning
         expect_contains:
-          - "running"
+          - "true"
 
       - title: "Take the HTTPS URL offline again"
         text: |

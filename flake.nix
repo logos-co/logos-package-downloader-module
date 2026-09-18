@@ -4,7 +4,7 @@
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
     logos-package-downloader.url = "github:logos-co/logos-package-downloader?rev=2cea89b3dfcdd6298517243c9be2ea2d9d6eb26c";
-    storage_module.url = "github:logos-co/logos-storage-module?ref=feat/node-state";
+    storage_module.url = "github:logos-co/logos-storage-module?ref=feat/node-running";
     modules_state.url = "github:logos-co/logos-modules-state-module";
   };
 

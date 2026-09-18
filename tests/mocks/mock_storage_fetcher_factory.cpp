@@ -12,10 +12,13 @@ std::function<void()> watchStorageReady(LogosModules&, std::function<void(bool)>
     return {};
 }
 
+// The node the impl tests never look at: both calls succeed and touch nothing.
 StorageNode makeStorageNode(LogosModules&) {
     StorageNode node;
 
-    node.state = []() { return std::string("running"); };
+    node.migrateConfig = [](std::string&) { return std::string("{}"); };
+    node.init = [](const std::string&) { return true; };
+    node.start = []() { return true; };
 
     return node;
 }

@@ -8,7 +8,6 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -92,9 +91,7 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
 
     StorageFetcher::NodeRunning nodeRunning =
         [&modules]() {
-            const StdLogosResult r = modules.storage_module.state();
-
-            return r.success && r.value.is_string() && r.value.get<std::string>() == "running";
+            return modules.storage_module.isRunning();
         };
 
     // Use a shared_ptr to keep the fetcher alive because there is currently
@@ -143,12 +140,6 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
 StorageNode makeStorageNode(LogosModules& modules) {
     StorageNode node;
 
-    node.state = [&modules]() {
-        const StdLogosResult r = modules.storage_module.state();
-
-        return r.success && r.value.is_string() ? r.value.get<std::string>() : std::string();
-    };
-
     node.migrateConfig = [&modules](std::string& error) {
         const std::string config = sharedConfig(error);
 
@@ -177,37 +168,6 @@ StorageNode makeStorageNode(LogosModules& modules) {
 
     node.start = [&modules]() {
         return modules.storage_module.start();
-    };
-
-    node.stop = [&modules]() {
-        return modules.storage_module.stop().success;
-    };
-
-    node.destroy = [&modules]() {
-        modules.storage_module.destroy();
-    };
-
-    // Used to cancel the subscription to the end of the stop.
-    auto stopSubscription = std::make_shared<logos::SubHandle>();
-
-    node.onStopped = [&modules, stopSubscription](std::function<void(bool)> callback) {
-        *stopSubscription = modules.storage_module.onStorageStop([callback](const std::string& payload) {
-            bool stopped = false;
-
-            try {
-                stopped = LogosMap::parse(payload).value("success", false);
-            } catch (...) {
-                stopped = false;
-            }
-
-            callback(stopped);
-        });
-
-        return static_cast<bool>(*stopSubscription);
-    };
-
-    node.cancelSubscription = [stopSubscription]() {
-        stopSubscription->cancel();
     };
 
     return node;
