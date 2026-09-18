@@ -4,7 +4,6 @@
 #include "logos_sdk.h"
 
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -121,40 +120,17 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
     const logos::SubHandle subscription = modules.modules_state.onModule_state_changed(
         [onChange](const std::string& module,
                    const LogosMap&, const LogosMap&,
-                   const std::string& oldState,
+                   const std::string&,
                    const std::string& newState,
                    const LogosMap&, std::uint64_t) {
-            fprintf(stderr, "storage watch: %s %s -> %s\n",
-                    module.c_str(), oldState.c_str(), newState.c_str());
-
             if (module == "storage_module") {
                 onChange(newState == "ready");
             }
         });
 
-    // Accepted, not armed: lp_subscribe defers a subscription whose target has
-    // not published yet, and arms it later without replaying what it missed.
-    fprintf(stderr, "storage watch: subscription %s\n",
-            subscription ? "accepted" : "refused");
-
-    modules.modules_state.onSubscriptionStatus(
-        [&modules, onChange](logos::SubStatus status, std::uint64_t) {
-            if (status != logos::SubStatus::Armed) {
-                return;
-            }
-
-            fprintf(stderr, "storage watch: subscription armed\n");
-
-            if (modules.modules_state.is_ready("storage_module")) {
-                onChange(true);
-            }
-        });
-
-    const bool ready = modules.modules_state.is_ready("storage_module");
-
-    fprintf(stderr, "storage watch: storage_module is %s\n", ready ? "ready" : "not ready");
-
-    if (ready) {
+    // Only ever ON: the subscription is already armed, so a `false` read here
+    // can be older than an event that just reported the module ready.
+    if (modules.modules_state.is_ready("storage_module")) {
         onChange(true);
     }
 
