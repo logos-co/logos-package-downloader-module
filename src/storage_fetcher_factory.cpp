@@ -132,8 +132,23 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
             }
         });
 
+    // Accepted, not armed: lp_subscribe defers a subscription whose target has
+    // not published yet, and arms it later without replaying what it missed.
     fprintf(stderr, "storage watch: subscription %s\n",
-            subscription ? "armed" : "refused");
+            subscription ? "accepted" : "refused");
+
+    modules.modules_state.onSubscriptionStatus(
+        [&modules, onChange](logos::SubStatus status, std::uint64_t) {
+            if (status != logos::SubStatus::Armed) {
+                return;
+            }
+
+            fprintf(stderr, "storage watch: subscription armed\n");
+
+            if (modules.modules_state.is_ready("storage_module")) {
+                onChange(true);
+            }
+        });
 
     const bool ready = modules.modules_state.is_ready("storage_module");
 
