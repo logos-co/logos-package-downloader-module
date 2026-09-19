@@ -71,6 +71,14 @@ QVariantMap one = logos.package_downloader.downloadPinned(
     "my-catalog", "wallet_module", "1.0.0", /*rootHash*/"");
 ```
 
+## Storage downloads
+
+A catalog entry can advertise its package over two protocols in its `urls`
+array: a `logos:<cid>` and an HTTPS URL. When the CID is present and the
+storage node runs on the same network as the repository (the `network` key of
+its `logos-repo.json`), the package is fetched from the storage network;
+otherwise, and on failure, the HTTPS URL is used.
+
 ## Building
 
 ```bash
@@ -80,12 +88,24 @@ ws build logos-package-downloader-module --auto-local   # workspace-aware build 
 
 The build produces `lib/package_downloader_plugin.{so,dylib}` (the Qt plugin) plus `lib/libpackage_downloader_lib.{so,dylib}` (the bundled external library) and `include/*.h` (auto-generated client API headers consumed by other modules).
 
+## Doc-test
+
+`doctests/package-downloader-storage.test.yaml` runs an end-to-end test by
+creating a local setup with a storage node, a local repo, and a module
+instance. It verifies that the module can fetch a package from the storage
+network.
+
+```bash
+cd doctests && ./run.sh
+```
+
 ## Dependencies
 
 Direct flake inputs (`flake.nix`):
 
 - `logos-module-builder` — provides `mkLogosModule`, the Qt plugin glue generator, and brings in `logos-cpp-sdk` + `logos-module` transitively.
 - `logos-package-downloader` — the underlying C++ download library (plain C++ + libcurl), staged into `lib/` at build time and linked into the plugin.
+- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` dependency; the host configures and starts the node.
 
 Resolved transitively through the builder:
 

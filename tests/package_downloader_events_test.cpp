@@ -17,3 +17,8 @@ void PackageDownloaderImpl::downloadProgress(const std::string& packageName,
     recordEvent("downloadProgress", packageName + ":" + std::to_string(received)
                                     + "/" + std::to_string(total));
 }
+
+void PackageDownloaderImpl::downloadDone(const std::string& packageName,
+                                         const std::string& source) {
+    recordEvent("downloadDone", packageName + ":" + source);
+}

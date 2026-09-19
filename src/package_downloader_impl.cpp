@@ -7,6 +7,8 @@
 // shims have been removed.
 
 #include "package_downloader_impl.h"
+#include "storage_fetcher.h"
+#include "storage_fetcher_factory.h"
 
 #include <package_downloader_lib.h>
 
@@ -16,7 +18,6 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <utility>   // std::move
 #include <vector>
@@ -80,8 +81,13 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
     }
 
     std::string err;
+    std::string source;
     std::string path = lib->downloadPackage(repoUrlOrName, packageName, err,
-                                            version, rootHash, "", progressFn);
+                                            version, rootHash, "", progressFn, &source);
+
+    if (!source.empty()) {
+        result["source"] = source;
+    }
 
     if (path.empty()) {
         std::string msg = std::string("download failed for '") + packageName + "'";
@@ -115,7 +121,14 @@ PackageDownloaderImpl::PackageDownloaderImpl()
     // XDG config file once in the lib's constructor.
 }
 
-PackageDownloaderImpl::~PackageDownloaderImpl() { delete m_lib; }
+// m_lib is not deleted: the module is `concurrency:"multi"`, so a download
+// dispatched on another thread can still be inside it while we are torn down.
+PackageDownloaderImpl::~PackageDownloaderImpl() {
+    if (m_cancelWatchSubscription) {
+        m_cancelWatchSubscription();
+    }
+
+}
 
 void PackageDownloaderImpl::onContextReady() {
     // The codegen-generated provider has just populated the
@@ -132,16 +145,47 @@ void PackageDownloaderImpl::onContextReady() {
     // constructor. Safe to delete-and-replace here because the
     // framework guarantees onContextReady fires before any method
     // dispatch — no fetches or registry mutations have hit m_lib yet.
-    if (instancePersistencePath().empty()) return;
-    const std::string newPath =
-        (fs::path(instancePersistencePath()) / "repositories.json").string();
-    // Construct the replacement BEFORE freeing the old one: if the
-    // constructor throws (e.g. bad_alloc), m_lib still points at the
-    // valid XDG-seeded instance instead of being left dangling for the
-    // destructor to double-free.
-    auto* replacement = new lgpd::PackageDownloaderLib(newPath);
-    delete m_lib;
-    m_lib = replacement;
+
+    if (!instancePersistencePath().empty()) {
+        const std::string newPath =
+            (fs::path(instancePersistencePath()) / "repositories.json").string();
+        // Construct the replacement BEFORE freeing the old one: if the
+        // constructor throws (e.g. bad_alloc), m_lib still points at the
+        // valid XDG-seeded instance instead of being left dangling for the
+        // destructor to double-free.
+        auto* replacement = new lgpd::PackageDownloaderLib(newPath);
+        delete m_lib;
+        m_lib = replacement;
+    }
+
+    m_cancelWatchSubscription = watchStorageReady(modules(), [this]() {
+        startStorage();
+    });
+}
+
+void PackageDownloaderImpl::startStorage() {
+    auto storageNode = makeStorageNode(modules());
+
+    if (!startStorageNode(storageNode).empty()) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_storageMutex);
+
+        if (m_storageFetcher) {
+            return;
+        }
+    }
+
+    auto fetcher = makeStorageFetcher(modules());
+
+    std::lock_guard<std::mutex> lock(m_storageMutex);
+
+    if (!m_storageFetcher) {
+        m_storageFetcher = std::move(fetcher);
+        m_lib->setStorageFetcher(m_storageFetcher);
+    }
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
@@ -180,15 +224,28 @@ LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrN
     return LogosList::parse(m_lib->getCatalogForRepoJson(repoUrlOrName));
 }
 
+std::string PackageDownloaderImpl::storageNetwork() {
+    return makeNetwork(modules());
+}
+
 LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
                                                 const std::string& rootHash) {
-    return pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
-                          [this](const std::string& name, std::uint64_t received,
-                                 std::uint64_t total) {
-                              downloadProgress(name, received, total);
-                          });
+    m_lib->setNetwork(storageNetwork());
+
+    LogosMap result = pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
+                                     [this](const std::string& name, std::uint64_t received,
+                                            std::uint64_t total) {
+                                         downloadProgress(name, received, total);
+                                     });
+
+    // A successful download contains the path where the package was downloaded.
+    if (result.contains("path")) {
+        downloadDone(packageName, result.value("source", ""));
+    }
+
+    return result;
 }
 
 LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson) {
@@ -197,6 +254,8 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     // (below) so one bad entry never takes down the whole batch.
     // `resolveDependencies` reuses this same pattern.
     LogosList results = LogosList::array();
+
+    m_lib->setNetwork(storageNetwork());
 
     // Extract the requested top-level names up front so a failure that
     // throws *before* resolveDependenciesJson emits any per-entry output
@@ -265,12 +324,19 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
             std::string version  = entry.value("version", "");
             std::string rootHash = entry.value("rootHash", "");
             std::string repoUrl  = entry.value("repositoryUrl", "");
-            results.push_back(pinnedDownload(
+            LogosMap downloaded = pinnedDownload(
                 m_lib, repoUrl, name, version, rootHash,
                 [this](const std::string& pkg, std::uint64_t received,
                        std::uint64_t total) {
                     downloadProgress(pkg, received, total);
-                }));
+                });
+
+            // A successful download contains the path where the package was downloaded.
+            if (downloaded.contains("path")) {
+                downloadDone(name, downloaded.value("source", ""));
+            }
+
+            results.push_back(std::move(downloaded));
         }
     } catch (const std::exception& ex) {
         pushError(std::string("downloader exception: ") + ex.what());

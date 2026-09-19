@@ -1,12 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <logos_json.h>
 #include <logos_module_context.h>
 
-namespace lgpd { class PackageDownloaderLib; }
+namespace lgpd { class PackageDownloaderLib; class Fetcher; }
 
 /**
  * Bridges the lgpd C++ library to the Logos module ABI.
@@ -88,6 +91,7 @@ public:
 logos_events:
     void catalogChanged();
     void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total);
+    void downloadDone(const std::string& packageName, const std::string& source);
 
 protected:
     // Fires once, after the framework has populated the LogosModuleContext
@@ -99,5 +103,18 @@ protected:
     void onContextReady() override;
 
 private:
+    std::string storageNetwork();
+
+    void startStorage();
+
     lgpd::PackageDownloaderLib* m_lib;
+
+    // Save the storage fetcher so it doesn't need
+    // to unsubscribe and resubscribe to storage_module events.
+    std::shared_ptr<lgpd::Fetcher> m_storageFetcher;
+
+    std::function<void()> m_cancelWatchSubscription;
+
+    // Guards m_storageFetcher.
+    std::mutex m_storageMutex;
 };

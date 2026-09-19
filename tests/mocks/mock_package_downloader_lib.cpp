@@ -15,6 +15,7 @@
 //   refreshCatalogs / registry mutators → "" (empty == success)
 //   downloadPackage → "" (empty path == download failure, per the impl's
 //     pinnedDownload contract — a success test configures a path)
+//   downloadSource → "" (source used to download the package)
 
 #include <logos_clib_mock.h>
 #include <package_downloader_lib.h>   // resolves to tests/stubs/package_downloader_lib.h
@@ -80,7 +81,8 @@ std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOr
                                                   const std::string& /*version*/,
                                                   const std::string& /*rootHash*/,
                                                   const std::string& /*outputDir*/,
-                                                  const ProgressFn& onProgress) {
+                                                  const ProgressFn& onProgress,
+                                                  std::string* source) {
     LOGOS_CMOCK_RECORD("downloadPackage");
     // Replay a fixed two-sample transfer so tests can assert the impl turns
     // lib progress into `downloadProgress` events, tagged with the right
@@ -91,6 +93,10 @@ std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOr
         onProgress(0, 4096);
         onProgress(4096, 4096);
     }
+    if (source) {
+        *source = mockStr("downloadSource", "");
+    }
+
     return mockStr("downloadPackage", "");   // empty path == failure
 }
 
@@ -98,6 +104,14 @@ std::string PackageDownloaderLib::resolveDependenciesJson(const std::string& /*d
                                                           const std::string& /*installedPackagesJson*/) {
     LOGOS_CMOCK_RECORD("resolveDependenciesJson");
     return mockStr("resolveDependenciesJson", "[]");
+}
+
+void PackageDownloaderLib::setStorageFetcher(std::shared_ptr<Fetcher> /*fetcher*/) {
+    LOGOS_CMOCK_RECORD("setStorageFetcher");
+}
+
+void PackageDownloaderLib::setNetwork(const std::string& /*network*/) {
+    LOGOS_CMOCK_RECORD("setNetwork");
 }
 
 // ── RepositoryRegistry ──────────────────────────────────────────────────
