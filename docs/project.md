@@ -177,10 +177,12 @@ single-line declaration in the header into a provider method plus an auto-genera
 | `refreshCatalog` | `LogosMap refreshCatalog()` | Re-fetch every enabled repo's `logos-repo.json` + `index.json`. Returns `{success, error?}` — error string surfaced from `m_lib->refreshCatalogs()` |
 | `getCatalog` | `LogosList getCatalog()` | Merged catalog across all enabled repos. Each entry: `{repositoryUrl, repositoryName, repositoryDisplayName, name, type, category, author, description, icon, versions[]}` (versions newest-first). Parses `m_lib->getCatalogJson()` |
 | `getCatalogForRepo` | `LogosList getCatalogForRepo(const std::string& repoUrlOrName)` | Same shape as `getCatalog`, scoped to one repository (identified by URL or name). Parses `m_lib->getCatalogForRepoJson(...)` |
-| `downloadPinned` | `LogosMap downloadPinned(const std::string& repoUrlOrName, const std::string& packageName, const std::string& version, const std::string& rootHash)` | Download one exact build. Empty args mean "any": empty repo → any enabled repo, empty version → newest, empty rootHash → don't disambiguate. Returns `{name, path, error?}` (plus `version` / `rootHash` / `repositoryUrl` when those args were supplied) |
+| `downloadPinned` | `LogosMap downloadPinned(const std::string& repoUrlOrName, const std::string& packageName, const std::string& version, const std::string& rootHash)` | Download one exact build. Empty args mean "any": empty repo → any enabled repo, empty version → newest, empty rootHash → don't disambiguate. Returns `{name, path, source, error?}` (plus `version` / `rootHash` / `repositoryUrl` when those args were supplied). `source` is the HTTPS URL, or `logos:<cid>` when the storage node served the package |
 | `downloadResolvedDependencies` | `LogosList downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson)` | Resolve a manifest-style dep list (`["name", ...]` or `[{name,version?,signer?}, ...]`) and download every resolved entry in install order. Each result row: `{name, path, error?}`. Exception-fenced to per-package error rows |
 | `resolveDependencies` | `LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson)` | **Download-free preview.** Resolves the dep list into install-ordered entries `{name, version, rootHash, repositoryUrl, url, topLevel}`. `installedPackagesJson` (optional `[{name,version,rootHash}]`) lets the resolver short-circuit transitive deps already on disk; empty string resolves all transitives from the catalog |
 | `catalogChanged` | `void catalogChanged()` *(under `logos_events:`)* | Event signal fired on success from `addRepository` / `removeRepository` / `setRepositoryEnabled`. Subscribers re-fetch via `listRepositories()` / `getCatalog()` |
+| `downloadProgress` | `void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total)` *(under `logos_events:`)* | Event fired while a package downloads, with the bytes received so far and the total size. `total` is 0 when the size is unknown |
+| `downloadDone` | `void downloadDone(const std::string& packageName, const std::string& source)` *(under `logos_events:`)* | Event fired when a package has downloaded, from `downloadPinned` and `downloadResolvedDependencies`. `source` is the HTTPS URL, or `logos:<cid>` when the storage node served the package |
 | `onContextReady` | `void onContextReady() override` *(protected)* | `LogosModuleContext` lifecycle hook. Fires after the host populates `modulePath()` / `instanceId()` / `instancePersistencePath()` and before any method dispatch; re-anchors the lib's `repositories.json` under `instancePersistencePath()` (no-op when that path is empty, keeping the XDG fallback) |
 
 ### How it works internally
@@ -201,6 +203,19 @@ single-line declaration in the header into a provider method plus an auto-genera
   package rather than crashing the whole batch — so a UI that keys install/Failed badges
   by package name always gets a matching update. An unattributed resolver error for a
   single requested package is attributed to that package.
+- **Storage node lifecycle.** The module starts the node itself. `onContextReady()`
+  subscribes to `modules_state.module_state_changed` and then asks `is_ready` once, since
+  a transition that already happened is not replayed; either path calls `startStorage()`,
+  which runs `migrateConfig` → `init` → `start` on `storage_module` and installs the
+  storage fetcher in the library. The node start runs on every `ready`, so a
+  `storage_module` that restarted gets its node back; a second start is refused by
+  `storage_module` itself. The fetcher is built once: building one takes subscriptions
+  that cannot be undone. Nothing but the fetcher check runs
+  under `m_storageMutex` — every call to another module is blocking, and a blocking call
+  spins a nested event loop that re-enters.
+  A download never starts the node: it is shared, and the storage UI may have stopped it
+  on purpose. A node that is down answers an empty network, and the library falls back
+  to HTTPS.
 - **Persistence path anchoring.** The constructor seeds `m_lib` with an XDG-style default
   config path (`$XDG_CONFIG_HOME/logos/package-downloader/repositories.json`, falling back
   to `$HOME/.config/...` or a temp dir) so callers that bypass the framework (the `lgpd`

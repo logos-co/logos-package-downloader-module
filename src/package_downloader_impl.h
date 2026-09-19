@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -104,9 +103,9 @@ protected:
     void onContextReady() override;
 
 private:
-    std::string storageNetwork() const;
+    std::string storageNetwork();
 
-    void setStorageReady(bool ready);
+    void startStorage();
 
     lgpd::PackageDownloaderLib* m_lib;
 
@@ -114,12 +113,8 @@ private:
     // to unsubscribe and resubscribe to storage_module events.
     std::shared_ptr<lgpd::Fetcher> m_storageFetcher;
 
-    // Keep the readiness state of the storage module.
-    std::atomic<bool> m_storageReady{false};
-
     std::function<void()> m_cancelWatchSubscription;
 
-    // setStorageReady runs from the modules_state event thread and from
-    // onContextReady.
+    // Guards m_storageFetcher.
     std::mutex m_storageMutex;
 };

@@ -8,7 +8,7 @@ std::string makeNetwork(LogosModules&) {
     return {};
 }
 
-std::function<void()> watchStorageReady(LogosModules&, std::function<void(bool)>) {
+std::function<void()> watchStorageReady(LogosModules&, std::function<void()>) {
     return {};
 }
 

@@ -4,6 +4,7 @@
 #include "logos_sdk.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -116,26 +117,25 @@ std::string makeNetwork(LogosModules& modules) {
 
 // The factory is swapped for a mock in unit tests, which have no logos_sdk.h,
 // so we keep watchStorageReady here and don't rely on modules.modules_state in the mock.
-std::function<void()> watchStorageReady(LogosModules& modules, std::function<void(bool)> onChange) {
-    const logos::SubHandle subscription = modules.modules_state.onModule_state_changed(
-        [onChange](const std::string& module,
-                   const LogosMap&, const LogosMap&,
-                   const std::string&,
-                   const std::string& newState,
-                   const LogosMap&, std::uint64_t) {
-            if (module == "storage_module") {
-                onChange(newState == "ready");
+std::function<void()> watchStorageReady(LogosModules& modules, std::function<void()> onReady) {
+    const logos::SubHandle state = modules.modules_state.onModule_state_changed(
+        [onReady](const std::string& module,
+                  const LogosMap&, const LogosMap&,
+                  const std::string&,
+                  const std::string& newState,
+                  const LogosMap&, std::uint64_t) {
+            if (module == "storage_module" && newState == "ready") {
+                onReady();
             }
         });
 
-    // Only ever ON: the subscription is already armed, so a `false` read here
-    // can be older than an event that just reported the module ready.
+    // Check just in case the module is ready yet
     if (modules.modules_state.is_ready("storage_module")) {
-        onChange(true);
+        onReady();
     }
 
-    return [subscription]() {
-        subscription.cancel();
+    return [state]() {
+        state.cancel();
     };
 }
 

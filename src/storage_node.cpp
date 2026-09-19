@@ -1,6 +1,5 @@
 #include "storage_node.h"
 
-#include <cstdio>
 #include <string>
 
 std::string startStorageNode(const StorageNode& node) {
@@ -24,9 +23,7 @@ std::string startStorageNode(const StorageNode& node) {
     //
     // If the context was created by another consumer, the start command
     // will succeed and the node will start if it is not already running.
-    if (!node.init(config)) {
-        fprintf(stderr, "storage node: init failed.\n");
-    }
+    node.init(config);
 
     // If the start fails we check if the node is running, to distinguish
     // between a real failure and a node started by another consumer.

@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -159,42 +158,34 @@ void PackageDownloaderImpl::onContextReady() {
         m_lib = replacement;
     }
 
-    m_cancelWatchSubscription = watchStorageReady(modules(), [this](bool ready) {
-        setStorageReady(ready);
+    m_cancelWatchSubscription = watchStorageReady(modules(), [this]() {
+        startStorage();
     });
 }
 
-void PackageDownloaderImpl::setStorageReady(bool ready) {
-    std::lock_guard<std::mutex> lock(m_storageMutex);
-
-    if (!ready) {
-        m_storageReady = false;
-        // Do not change ownership here.
-        // First come, first serve: the module that inits first the node
-        // will be responsible for freeing it.
-        m_lib->setStorageFetcher(nullptr);
-        return;
-    }
-
+void PackageDownloaderImpl::startStorage() {
     auto storageNode = makeStorageNode(modules());
 
-    const std::string error = startStorageNode(storageNode);
-
-    if (!error.empty()) {
-        fprintf(stderr, "PackageDownloaderImpl: the storage node did not start: %s\n",
-                error.c_str());
-
-        m_storageReady = false;
-        m_lib->setStorageFetcher(nullptr);
+    if (!startStorageNode(storageNode).empty()) {
         return;
     }
 
-    if (!m_storageFetcher) {
-        m_storageFetcher = makeStorageFetcher(modules());
+    {
+        std::lock_guard<std::mutex> lock(m_storageMutex);
+
+        if (m_storageFetcher) {
+            return;
+        }
     }
 
-    m_lib->setStorageFetcher(m_storageFetcher);
-    m_storageReady = true;
+    auto fetcher = makeStorageFetcher(modules());
+
+    std::lock_guard<std::mutex> lock(m_storageMutex);
+
+    if (!m_storageFetcher) {
+        m_storageFetcher = std::move(fetcher);
+        m_lib->setStorageFetcher(m_storageFetcher);
+    }
 }
 
 // ── Multi-repo API ─────────────────────────────────────────────────────────
@@ -233,11 +224,7 @@ LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrN
     return LogosList::parse(m_lib->getCatalogForRepoJson(repoUrlOrName));
 }
 
-std::string PackageDownloaderImpl::storageNetwork() const {
-    if (!m_storageReady) {
-        return std::string();
-    }
-
+std::string PackageDownloaderImpl::storageNetwork() {
     return makeNetwork(modules());
 }
 
