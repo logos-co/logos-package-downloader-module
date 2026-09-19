@@ -3,7 +3,7 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    logos-package-downloader.url = "github:logos-co/logos-package-downloader?ref/feat/storage-fetcher";
+    logos-package-downloader.url = "github:logos-co/logos-package-downloader?ref=feat/storage-fetcher";
     storage_module.url = "github:logos-co/logos-storage-module?ref=feat/node-running";
     modules_state.url = "github:logos-co/logos-modules-state-module";
   };
