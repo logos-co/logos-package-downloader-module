@@ -106,6 +106,10 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
 }
 
 std::string makeNetwork(LogosModules& modules) {
+    if (!modules.modules_state.is_ready("storage_module")) {
+        return std::string();
+    }
+
     const StdLogosResult r = modules.storage_module.network();
 
     if (!r.success || !r.value.is_string()) {
