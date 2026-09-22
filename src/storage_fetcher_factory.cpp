@@ -138,10 +138,15 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
             }
         });
 
-    // Check just in case the module is ready yet
-    if (modules.modules_state.is_ready("storage_module")) {
-        onReady();
-    }
+    // Avoid error on CI:
+    // https://github.com/logos-co/logos-basecamp/actions/runs/35619356577/job/106422057147
+    modules.modules_state.onSubscriptionStatus(
+        [&modules, onReady](logos::SubStatus status, std::uint64_t) {
+            if (status == logos::SubStatus::Armed &&
+                modules.modules_state.is_ready("storage_module")) {
+                onReady();
+            }
+        });
 
     return [state]() {
         state.cancel();
