@@ -3,6 +3,9 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
+    # Cut the builder -> standalone-app -> liblogos -> ... -> builder lock cycle.
+    # Safe for a core module: mkLogosModule never forces standalone-app.
+    logos-module-builder.inputs.logos-standalone-app.follows = "";
     logos-package-downloader.url = "github:logos-co/logos-package-downloader";
   };
 
