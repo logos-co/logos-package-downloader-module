@@ -95,13 +95,18 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
             return modules.storage_module.isRunning();
         };
 
+    StorageFetcher::Network network =
+        [&modules]() {
+            return makeNetwork(modules);
+        };
+
     // Use a shared_ptr to keep the fetcher alive because there is currently
     // no way to unsubscribe events.
     return std::shared_ptr<lgpd::Fetcher>(
         new StorageFetcher(downloadToUrl, onStorageDownloadDone,
                            onStorageDownloadProgress, downloadCancel,
                            downloadManifest, onStorageDownloadManifestDone,
-                           nodeRunning),
+                           nodeRunning, network),
         [](lgpd::Fetcher*) {});
 }
 

@@ -178,12 +178,12 @@ LOGOS_TEST(downloadPinned_success_returns_path) {
 LOGOS_TEST(downloadPinned_reports_the_transport_that_served_the_package) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
-    t.mockCFunction("downloadSource").returns("logos:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL");
+    t.mockCFunction("downloadSource").returns("logos:logos.test:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL");
     PackageDownloaderImpl impl;
 
     LogosMap r = impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
     LOGOS_ASSERT_EQ(r["source"].get<std::string>(),
-                    std::string("logos:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL"));
+                    std::string("logos:logos.test:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL"));
 }
 
 LOGOS_TEST(downloadPinned_failure_returns_error_row) {

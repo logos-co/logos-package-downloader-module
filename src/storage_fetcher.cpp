@@ -17,6 +17,7 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
                                DownloadCancel downloadCancel, DownloadManifest downloadManifest,
                                OnStorageDownloadManifestDone onStorageDownloadManifestDone,
                                NodeRunning nodeRunning,
+                               Network network,
                                std::chrono::milliseconds downloadTimeout,
                                std::chrono::milliseconds manifestTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
@@ -26,6 +27,7 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_onStorageDownloadProgress(std::move(onStorageDownloadProgress))
     , m_onStorageDownloadManifestDone(std::move(onStorageDownloadManifestDone))
     , m_nodeRunning(std::move(nodeRunning))
+    , m_network(std::move(network))
     , m_downloadTimeout(downloadTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
@@ -128,12 +130,25 @@ lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) 
     return {true, {}};
 }
 
-lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::string& path) {
-    return getToFile(cid, path, lgpd::ProgressFn{});
+bool StorageFetcher::canHandle(const std::string& url) const {
+    const std::string network = m_network();
+
+    if (network.empty()) {
+        return false;
+    }
+
+    return url.rfind("logos:" + network + ":", 0) == 0;
 }
 
-lgpd::FetchResult StorageFetcher::getToFile(const std::string& cid, const std::string& path,
+lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::string& path) {
+    return getToFile(url, path, lgpd::ProgressFn{});
+}
+
+lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::string& path,
                                             const lgpd::ProgressFn& onProgress) {
+    // url is logos:<network>:<CID>, the network was checked by canHandle.
+    const std::string cid = url.substr(url.rfind(':') + 1);
+
     if (!m_nodeRunning()) {
         return {false, "the storage node is not running"};
     }

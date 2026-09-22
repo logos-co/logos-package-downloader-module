@@ -37,6 +37,8 @@ const StorageFetcher::OnStorageDownloadProgress unusedProgress =
 
 const StorageFetcher::NodeRunning nodeRunning = []() { return true; };
 
+const StorageFetcher::Network network = []() { return std::string("logos.test"); };
+
 const StorageFetcher::DownloadCancel unusedCancel =
     [](const std::string&) {
         return std::string();
@@ -90,7 +92,7 @@ LOGOS_TEST(getToFile_succeeds) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -120,7 +122,7 @@ LOGOS_TEST(getToFile_returns_the_error_from_the_download_event) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -136,7 +138,7 @@ LOGOS_TEST(getToFile_returns_the_error_when_the_downloadToUrl_returns_an_error) 
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -160,7 +162,7 @@ LOGOS_TEST(getToFile_downloads_nothing_when_the_subscription_failed) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -194,7 +196,7 @@ LOGOS_TEST(getToFile_refuses_a_cid_already_in_progress) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
     fetcherPtr = &fetcher;
 
     lgpd::FetchResult firstCall = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -214,7 +216,7 @@ LOGOS_TEST(getToFile_times_out_when_no_event_arrives) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, downloadTimeout);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, downloadTimeout);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -240,7 +242,7 @@ LOGOS_TEST(getToFile_is_cancelled_on_timeout) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, downloadCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, downloadTimeout);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, downloadTimeout);
 
     fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -275,7 +277,7 @@ LOGOS_TEST(getToFile_accumulates_the_progress_data_size) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, onStorageDownloadProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
 
     std::vector<std::pair<std::uint64_t, std::uint64_t>> samples;
 
@@ -320,7 +322,7 @@ LOGOS_TEST(getToFile_ignores_the_progress_of_another_session) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, onStorageDownloadProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning);
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
 
     bool reported = false;
 
@@ -367,7 +369,7 @@ LOGOS_TEST(getToFile_fetches_the_manifest_before_the_download) {
         };
 
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           downloadManifest, onManifestDone, nodeRunning);
+                           downloadManifest, onManifestDone, nodeRunning, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -403,7 +405,7 @@ LOGOS_TEST(getToFile_does_not_download_when_the_manifest_fails) {
         };
 
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           downloadManifest, onManifestDone, nodeRunning);
+                           downloadManifest, onManifestDone, nodeRunning, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -424,11 +426,66 @@ LOGOS_TEST(getToFile_fails_when_the_node_is_not_running) {
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
                            manifest.fetch(), manifest.subscribe(),
-                           []() { return false; });
+                           []() { return false; }, network);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
     LOGOS_ASSERT_FALSE(r.ok);
     LOGOS_ASSERT_EQ(r.error, std::string("the storage node is not running"));
     LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(canHandle_accepts_a_url_of_the_node_network) {
+    Manifest manifest;
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
+
+    LOGOS_ASSERT_TRUE(fetcher.canHandle("logos:logos.test:cid-1"));
+}
+
+LOGOS_TEST(canHandle_refuses_a_url_of_another_network) {
+    Manifest manifest;
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
+
+    LOGOS_ASSERT_FALSE(fetcher.canHandle("logos:logos.dev:cid-1"));
+}
+
+LOGOS_TEST(canHandle_refuses_a_url_when_the_network_is_unknown) {
+    Manifest manifest;
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning,
+                           []() { return std::string(); });
+
+    LOGOS_ASSERT_FALSE(fetcher.canHandle("logos::cid-1"));
+}
+
+LOGOS_TEST(getToFile_downloads_the_cid_of_a_logos_url) {
+    std::function<void(const std::string&)> fireDone;
+    std::string downloadedCid;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string& cid, const std::string&) {
+            downloadedCid = cid;
+
+            const bool success = true;
+            fireDone(buildPayload(cid, success));
+
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [&](std::function<void(const std::string&)> callback) {
+            fireDone = std::move(callback);
+            return true;
+        };
+
+    Manifest manifest;
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network);
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.ok);
+    LOGOS_ASSERT_EQ(downloadedCid, std::string("cid-1"));
 }

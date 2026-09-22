@@ -224,16 +224,10 @@ LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrN
     return LogosList::parse(m_lib->getCatalogForRepoJson(repoUrlOrName));
 }
 
-std::string PackageDownloaderImpl::storageNetwork() {
-    return makeNetwork(modules());
-}
-
 LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
                                                 const std::string& rootHash) {
-    m_lib->setNetwork(storageNetwork());
-
     LogosMap result = pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
                                      [this](const std::string& name, std::uint64_t received,
                                             std::uint64_t total) {
@@ -254,8 +248,6 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     // (below) so one bad entry never takes down the whole batch.
     // `resolveDependencies` reuses this same pattern.
     LogosList results = LogosList::array();
-
-    m_lib->setNetwork(storageNetwork());
 
     // Extract the requested top-level names up front so a failure that
     // throws *before* resolveDependenciesJson emits any per-entry output

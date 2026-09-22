@@ -25,6 +25,7 @@ public:
     using DownloadManifest = std::function<std::string(const std::string& cid)>;
     using OnStorageDownloadManifestDone = std::function<bool(std::function<void(const std::string& payload)>)>;
     using NodeRunning = std::function<bool()>;
+    using Network = std::function<std::string()>;
 
     // Default timeout for the manifest: 5 minutes. A net against a lost event,
     // not the bound of the retry: storage always emits
@@ -39,12 +40,14 @@ public:
         DownloadManifest downloadManifest,
         OnStorageDownloadManifestDone onStorageDownloadManifestDone,
         NodeRunning nodeRunning,
+        Network network,
         std::chrono::milliseconds downloadTimeout = std::chrono::minutes(10),
         std::chrono::milliseconds manifestTimeout = std::chrono::minutes(5));
 
+    bool canHandle(const std::string& url) const override;
     lgpd::FetchResult get(const std::string& cid, std::string& out) override;
-    lgpd::FetchResult getToFile(const std::string& cid, const std::string& path) override;
-    lgpd::FetchResult getToFile(const std::string& cid, const std::string& path,
+    lgpd::FetchResult getToFile(const std::string& url, const std::string& path) override;
+    lgpd::FetchResult getToFile(const std::string& url, const std::string& path,
                                 const lgpd::ProgressFn& onProgress) override;
 
 private:
@@ -70,6 +73,7 @@ private:
     OnStorageDownloadProgress m_onStorageDownloadProgress;
     OnStorageDownloadManifestDone m_onStorageDownloadManifestDone;
     NodeRunning m_nodeRunning;
+    Network m_network;
 
     std::chrono::milliseconds m_downloadTimeout;
     std::chrono::milliseconds m_manifestTimeout;

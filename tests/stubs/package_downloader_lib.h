@@ -34,6 +34,7 @@ class Fetcher {
 public:
     virtual ~Fetcher() = default;
 
+    virtual bool canHandle(const std::string& url) const = 0;
     virtual FetchResult get(const std::string& url, std::string& out) = 0;
     virtual FetchResult getToFile(const std::string& url, const std::string& path) = 0;
     virtual FetchResult getToFile(const std::string& url,
@@ -82,8 +83,6 @@ public:
                                         const std::string& installedPackagesJson = "");
 
     void setStorageFetcher(std::shared_ptr<Fetcher> fetcher);
-
-    void setNetwork(const std::string& network);
 
 private:
     RepositoryRegistry registry_;

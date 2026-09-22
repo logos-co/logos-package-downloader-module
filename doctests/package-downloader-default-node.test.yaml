@@ -4,7 +4,7 @@ release: ""
 
 intro: |
   The package downloader needs a storage node running before it can serve a
-  `logos:<cid>` url, and it brings that node up itself when the storage module
+  `logos:<network>:<cid>` url, and it brings that node up itself when the storage module
   becomes available. This tutorial proves it with no pre-existing configuration shared
   by the Storage UI.
 

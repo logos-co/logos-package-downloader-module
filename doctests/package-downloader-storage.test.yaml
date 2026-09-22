@@ -4,7 +4,7 @@ release: ""
 
 intro: |
   The package downloader module can fetch packages over Logos Storage if the
-  catalog's index advertises a `logos:<cid>`. This tutorial proves that path
+  catalog's index advertises a `logos:<network>:<cid>`. This tutorial proves that path
   end to end, with no dependency on the public network.
 
 what_you_build: "A release-like environment to download a file over Logos Storage with the package downloader."
@@ -14,7 +14,7 @@ what_you_learn:
   - How a release publishes a package to a storage node
   - How a catalog advertises that package over two protocols in its `urls` entry
   - How to follow a download's progress with `logosctl watch`
-  - Why the repository's `network` must match the storage node's own
+  - Why the network in `logos:<network>` must match the storage node's own
   - How the downloader falls back to the HTTPS URL when storage is gone
 
 prerequisites:
@@ -216,26 +216,7 @@ sections:
       A catalog is two files:
         1. `index.json`, which lists packages and their versions;
         2. `logos-repo.json`, which describes the repository and points at that index.
-
-      A sidecar is a third file generated during the release process next to the `.lgx`
-      and carrying its CID.
     steps:
-      - title: "Write the sidecar"
-        text: |
-          A minimal sidecar is needed to build the catalog index.
-        run: |
-          set -eu
-
-          cat > www/sidecar.json <<EOF
-          {
-            "sha256": "$(sha256sum downloader-lgx/*.lgx | cut -d' ' -f1)",
-            "cid": "$(cat cid.txt)"
-          }
-          EOF
-
-          cat www/sidecar.json
-        check_file: "www/sidecar.json"
-
       - title: |
           Build index.json
         text: |
@@ -245,8 +226,8 @@ sections:
 
           nix build 'github:logos-co/logos-package#lgx' -o lgx
 
-          # Write the local URL and the package path to `urls.txt` to be used by `index.py`
-          echo "https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
+          # Write the storage URL, the local URL and the package path to `urls.txt` to be used by `index.py`
+          echo "logos:logos.dev:$(cat cid.txt) https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
 
           # TODO: use master once the PR is merged
           curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/feat/add-storage-as-lgx-provider/index.py
@@ -261,7 +242,7 @@ sections:
 
           cat index.log
         code_block: |
-          echo "https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
+          echo "logos:logos.dev:$(cat cid.txt) https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
           curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/main/index.py
           nix build 'github:logos-co/logos-package#lgx' -o lgx
           PATH="$(pwd)/lgx/bin:$PATH" python3 index.py build urls.txt --no-icons -o www/index.json
@@ -270,10 +251,10 @@ sections:
 
       - title: "Check that the index advertises the CID"
         run: |
-          jq -er --arg cid "logos:$(cat cid.txt)" \
+          jq -er --arg cid "logos:logos.dev:$(cat cid.txt)" \
             '.packages[0].versions[0].urls[0] == $cid' www/index.json
         code_block: |
-          jq -er --arg cid "logos:$(cat cid.txt)" \
+          jq -er --arg cid "logos:logos.dev:$(cat cid.txt)" \
             '.packages[0].versions[0].urls[0] == $cid' www/index.json
         expect_contains:
           - "true"
@@ -293,13 +274,6 @@ sections:
       - title: "Write logos-repo.json"
         text: |
           `logos-repo.json` tells the downloader where to fetch packages from.
-
-          `network` must equal the node's, otherwise the downloader will
-          ignore the CID.
-
-          Note: `logos.dev` is only checked against the network the storage
-          module reports, the preset's bootstrap nodes are overridden by the
-          `--bootstrap-node` option we pass by hand.
         run: |
           set -eu
 
@@ -310,7 +284,6 @@ sections:
             "displayName": "Doctest Catalog",
             "description": "Local catalog served over HTTPS for this tutorial.",
             "indexUrl": "https://127.0.0.1:8443/index.json",
-            "network": "logos.dev",
             "trustedSigners": []
           }
           EOF
@@ -377,11 +350,8 @@ sections:
           Here we provide our own bootstrap node, which overrides the ones the
           network preset would supply.
 
-          But we still provide a network name because the package downloader
-          needs to know which network to use.
-
-          Note: we could leave it empty, but naming a network makes sure the
-          path that compares network names is exercised.
+          But we still provide a network name: the downloader uses storage only when
+          it matches the network in `logos:<network>:<cid>`.
         run: |
           set -eu
 
@@ -447,8 +417,8 @@ sections:
 
       - title: "Check the network the node reports"
         text: |
-          The downloader compares this to the repository's `network`. They have
-          to be equal, or the CID is ignored and the HTTPS URL is used instead.
+          The downloader compares this to the network in `logos:<network>:<cid>`. They
+          have to be equal, or the CID is ignored and the HTTPS URL is used instead.
         run: './logosctl/bin/logosctl --config-dir ./session call storage_module network'
         code_block: 'logosctl call storage_module network'
         expect_contains:

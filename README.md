@@ -74,10 +74,9 @@ QVariantMap one = logos.package_downloader.downloadPinned(
 ## Storage downloads
 
 A catalog entry can advertise its package over two protocols in its `urls`
-array: a `logos:<cid>` and an HTTPS URL. When the CID is present and the
-storage node runs on the same network as the repository (the `network` key of
-its `logos-repo.json`), the package is fetched from the storage network;
-otherwise, and on failure, the HTTPS URL is used.
+array: a `logos:<network>:<cid>` and an HTTPS URL. When the storage node runs
+on that network, the package is fetched from the storage network. Otherwise,
+and on failure, the HTTPS URL is used.
 
 ## Building
 
