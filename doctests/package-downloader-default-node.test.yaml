@@ -48,7 +48,9 @@ sections:
       - title: "Build and install the storage module"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-storage-module#lgx' -o storage-lgx
+          STORAGE_REV=$(nix flake metadata --json 'github:logos-co/logos-package-downloader-module{release}' \
+            | jq -r '.locks.nodes[.locks.nodes.root.inputs.storage_module].locked.rev')
+          nix build "github:logos-co/logos-storage-module/$STORAGE_REV#lgx" -o storage-lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules list
         code_block: |
