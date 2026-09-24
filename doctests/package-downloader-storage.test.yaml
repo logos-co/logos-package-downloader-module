@@ -308,8 +308,9 @@ sections:
       The daemon loads the package downloader at start, and the storage module
       with it.
 
-      The downloader brings the storage node up itself, from
-      `$HOME/.logos_storage/config.json` — the file the Storage UI shares.
+      The downloader brings the storage node up itself. The storage module
+      manages the node configuration in `$HOME/.logos_storage/config.json`: it
+      reads it before `init` and saves it after.
 
       `logosctl` is both the Logos daemon and its client; `lgpm` installs
       `.lgx` packages into a modules directory.
@@ -341,8 +342,8 @@ sections:
 
       - title: "Write the node configuration"
         text: |
-          The downloader reads this file when the storage module becomes
-          available, so it is written before the daemon starts.
+          The storage module reads this file when the downloader starts the
+          node, so it is written before the daemon starts.
 
           By default, Logos Storage provides 2 available networks:
             1. logos.dev

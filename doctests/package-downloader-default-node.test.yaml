@@ -65,9 +65,9 @@ sections:
 
       - title: "There is no configuration to read"
         text: |
-          The storage module reads the node configuration from
-          `$HOME/.logos_storage/config.json`, the file the Storage UI shares.
-          `HOME` points at an empty directory here, so there is none.
+          The storage module manages the node configuration in
+          `$HOME/.logos_storage/config.json`. `HOME` points at an empty
+          directory here, so there is none.
         run: |
           set -eu
           mkdir -p home
