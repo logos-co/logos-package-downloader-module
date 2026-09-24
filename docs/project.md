@@ -206,7 +206,7 @@ single-line declaration in the header into a provider method plus an auto-genera
 - **Storage node lifecycle.** The module starts the node itself. `onContextReady()`
   subscribes to `modules_state.module_state_changed` and then asks `is_ready` once, since
   a transition that already happened is not replayed; either path calls `startStorage()`,
-  which runs `migrateConfig` → `init` → `start` on `storage_module` and installs the
+  which runs `loadConfigOrDefault` → `init` → `start` on `storage_module` and installs the
   storage fetcher in the library. The node start runs on every `ready`, so a
   `storage_module` that restarted gets its node back; a second start is refused by
   `storage_module` itself. The fetcher is built once: building one takes subscriptions

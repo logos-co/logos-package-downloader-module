@@ -17,6 +17,6 @@ std::string makeNetwork(LogosModules& modules);
 
 std::function<void()> watchStorageReady(LogosModules& modules, std::function<void()> onReady);
 
-// The configuration comes from ~/.logos_storage/config.json,
-// shared with the Storage UI.
+// The configuration is the one the storage module saved at its last init,
+// or its default.
 StorageNode makeStorageNode(LogosModules& modules);

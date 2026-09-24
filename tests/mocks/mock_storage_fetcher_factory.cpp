@@ -17,7 +17,7 @@ StorageNode makeStorageNode(LogosModules&) {
     StorageNode node;
 
     node.isRunning = []() { return false; };
-    node.migrateConfig = [](std::string&) { return std::string("{}"); };
+    node.loadConfig = [](std::string&) { return std::string("{}"); };
     node.init = [](const std::string&) { return true; };
     node.start = []() { return true; };
 

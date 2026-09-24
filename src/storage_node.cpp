@@ -8,7 +8,7 @@ std::string startStorageNode(const StorageNode& node) {
     }
 
     std::string error;
-    const std::string config = node.migrateConfig(error);
+    const std::string config = node.loadConfig(error);
 
     if (!error.empty()) {
         return error;

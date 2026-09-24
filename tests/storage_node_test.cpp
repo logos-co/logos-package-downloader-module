@@ -28,7 +28,7 @@ struct FakeNode {
             return nodeRunning;
         };
 
-        n.migrateConfig = [this](std::string& error) {
+        n.loadConfig = [this](std::string& error) {
             error = configError;
             return config;
         };
@@ -51,7 +51,7 @@ struct FakeNode {
 
 } // namespace
 
-LOGOS_TEST(start_inits_the_node_with_the_migrated_configuration) {
+LOGOS_TEST(start_inits_the_node_with_the_loaded_configuration) {
     FakeNode fake;
 
     const std::string error = startStorageNode(fake.node());
@@ -61,7 +61,7 @@ LOGOS_TEST(start_inits_the_node_with_the_migrated_configuration) {
     LOGOS_ASSERT_TRUE(fake.startCalled);
 }
 
-LOGOS_TEST(start_reports_a_configuration_that_could_not_be_migrated) {
+LOGOS_TEST(start_reports_a_configuration_that_could_not_be_loaded) {
     FakeNode fake;
     fake.configError = "Invalid configuration: expected a JSON object.";
 

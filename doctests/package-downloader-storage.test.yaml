@@ -328,7 +328,7 @@ sections:
       - title: "Build and install the storage module"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-storage-module/53f458f7c71842780c5de8dad53990b745ea48c9#lgx' -o storage-lgx
+          nix build 'github:logos-co/logos-storage-module#lgx' -o storage-lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules list
         code_block: |

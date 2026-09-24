@@ -5,50 +5,13 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <functional>
-#include <sstream>
 #include <string>
-#include <system_error>
 #include <utility>
-
-namespace fs = std::filesystem;
 
 namespace {
 
 constexpr int64_t chunkSize = 65536;
-
-// The node configuration, shared with the Storage UI.
-std::string sharedConfig(std::string& error) {
-    const char* home = std::getenv("HOME");
-
-    if (!home || !*home) {
-        return {};
-    }
-
-    const fs::path path = fs::path(home) / ".logos_storage" / "config.json";
-
-    std::error_code ec;
-
-    if (!fs::exists(path, ec)) {
-        return {};
-    }
-
-    std::ifstream file(path);
-
-    if (!file) {
-        error = "cannot read " + path.string();
-        return {};
-    }
-
-    std::ostringstream config;
-
-    config << file.rdbuf();
-
-    return config.str();
-}
 
 }
 
@@ -160,14 +123,8 @@ StorageNode makeStorageNode(LogosModules& modules) {
         return modules.storage_module.isRunning();
     };
 
-    node.migrateConfig = [&modules](std::string& error) {
-        const std::string config = sharedConfig(error);
-
-        if (!error.empty()) {
-            return std::string();
-        }
-
-        const StdLogosResult r = modules.storage_module.migrateConfig(config);
+    node.loadConfig = [&modules](std::string& error) {
+        const StdLogosResult r = modules.storage_module.loadConfigOrDefault();
 
         if (!r.success) {
             error = r.error;

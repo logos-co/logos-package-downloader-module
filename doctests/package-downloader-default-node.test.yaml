@@ -48,7 +48,7 @@ sections:
       - title: "Build and install the storage module"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-storage-module/53f458f7c71842780c5de8dad53990b745ea48c9#lgx' -o storage-lgx
+          nix build 'github:logos-co/logos-storage-module#lgx' -o storage-lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file storage-lgx/*.lgx
           ./lgpm/bin/lgpm --modules-dir ./session/modules list
         code_block: |
@@ -122,7 +122,7 @@ sections:
       - title: "The node is running"
         text: |
           No `init`, no `start`: loading the storage module is what makes the
-          downloader migrate the configuration, initialise the node and start
+          downloader load the configuration, initialise the node and start
           it.
         run: |
           set -eu
@@ -134,7 +134,7 @@ sections:
 
       - title: "It runs on the default data directory"
         text: |
-          With no configuration file, `migrateConfig` gives the default configuration, including
+          With no configuration file, `loadConfigOrDefault` gives the default configuration, including
           the data directory, under the shared storage home.
         run: './logosctl/bin/logosctl --config-dir ./session call storage_module dataDir'
         code_block: 'logosctl call storage_module dataDir'
