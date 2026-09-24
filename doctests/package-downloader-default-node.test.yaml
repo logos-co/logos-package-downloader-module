@@ -99,32 +99,14 @@ sections:
           sleep 2
         code_block: "logosctl --config-dir ./session -D > logs.txt &"
 
-  - title: "Load the modules"
-    step: true
-    text: |
-      `storage_module` is an optional dependency of the downloader: load the
-      downloader first, then the storage module.
-    steps:
-      - title: "Load package_downloader"
-        run: "./logosctl/bin/logosctl --config-dir ./session module load package_downloader"
-        code_block: "logosctl module load package_downloader"
-        expect_contains:
-          - "package_downloader"
-
-      - title: "Load the storage module"
-        run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load storage_module"
-        code_block: "logosctl module load storage_module"
-        expect_contains:
-          - "storage_module"
-
   - title: "The node is up, and nobody started it"
     step: true
     steps:
       - title: "The node is running"
         text: |
-          No `init`, no `start`: loading the storage module is what makes the
-          downloader load the configuration, initialise the node and start
-          it.
+          The daemon loads the storage module at start,
+          and the downloader then loads the configuration, initialises the node
+          and starts it.
         run: |
           set -eu
           sleep 5
