@@ -229,8 +229,7 @@ sections:
           # Write the storage URL, the local URL and the package path to `urls.txt` to be used by `index.py`
           echo "logos:logos.dev:$(cat cid.txt) https://127.0.0.1:8443/package_downloader.lgx $(ls downloader-lgx/*.lgx)" > urls.txt
 
-          # TODO: use master once the PR is merged
-          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/feat/add-storage-as-lgx-provider/index.py
+          curl -sSLO https://raw.githubusercontent.com/logos-co/logos-modules-release-tool/main/index.py
 
           # Build the index.json by consuming a file containing the local URL (required).
           PATH="$(pwd)/lgx/bin:$PATH" \

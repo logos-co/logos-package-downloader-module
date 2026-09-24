@@ -5,8 +5,7 @@ release: ""
 intro: |
   The package downloader needs a storage node running before it can serve a
   `logos:<network>:<cid>` url, and it brings that node up itself when the storage module
-  becomes available. This tutorial proves it with no pre-existing configuration shared
-  by the Storage UI.
+  becomes available. This tutorial proves it with no pre-existing configuration.
 
 what_you_build: "A Logos daemon whose storage node was never started by hand."
 
