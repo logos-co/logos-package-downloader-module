@@ -36,6 +36,9 @@ sections:
       `.lgx` packages into a modules directory.
     steps:
       - title: "Build logosctl"
+        text: |
+          logosctl bundles the package downloader under test. Its version is the
+          one pinned in logos-logoscore-cli's `flake.lock`.
         run: "nix build 'github:logos-co/logos-logoscore-cli?ref=924e3489e43b734ffd4a7d9cd7e14971341bb101#ctl' --out-link ./logosctl"
         code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logosctl"
         check_file: "logosctl/bin/logosctl"
@@ -59,22 +62,6 @@ sections:
           lgpm --modules-dir ./session/modules list
         expect_contains:
           - "storage_module"
-
-      - title: "Build and install the package downloader"
-        text: |
-          The module under test, installed into the session so the daemon loads
-          this build rather than the copy bundled with logosctl.
-        run: |
-          set -eu
-          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
-          ./lgpm/bin/lgpm --modules-dir ./session/modules --allow-unsigned install --file downloader-lgx/*.lgx
-          ./lgpm/bin/lgpm --modules-dir ./session/modules list
-        code_block: |
-          nix build 'github:logos-co/logos-package-downloader-module#lgx' -o downloader-lgx
-          lgpm --modules-dir ./session/modules --allow-unsigned install --file downloader-lgx/*.lgx
-          lgpm --modules-dir ./session/modules list
-        expect_contains:
-          - "package_downloader"
 
       - title: "There is no configuration to read"
         text: |

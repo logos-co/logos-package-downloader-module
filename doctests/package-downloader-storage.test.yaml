@@ -305,9 +305,8 @@ sections:
     step: true
     text: |
       The Package Downloader needs a logosctl daemon running to serve packages.
-      The Storage Module will be a dependency of Basecamp and logosctl, running
-      by default. So we start the daemon and load it first, to recreate that
-      environment.
+      The daemon loads the package downloader at start, and the storage module
+      with it.
 
       The downloader brings the storage node up itself, from
       `$HOME/.logos_storage/config.json` — the file the Storage UI shares.
@@ -391,24 +390,10 @@ sections:
         run: "sh -c 'HOME=\"$(pwd)/home\" SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'"
         code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D > logs.txt &"
 
-      - title: "Load package_downloader"
-        text: |
-          `storage_module` is an optional dependency of the downloader: load
-          the downloader first, then the storage module.
-        run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load package_downloader"
-        code_block: "logosctl module load package_downloader"
-        expect_contains:
-          - "package_downloader"
-
-      - title: "Load the storage module"
-        run: "sleep 2 && ./logosctl/bin/logosctl --config-dir ./session module load storage_module"
-        code_block: "logosctl module load storage_module"
-        expect_contains:
-          - "storage_module"
-
       - title: "The downloader starts the node"
         text: |
-          The downloader starts the node automatically when the storage module is loaded.
+          The daemon loads the storage module at start,
+          and the downloader then starts the node.
         run: |
           set -eu
           sleep 5
