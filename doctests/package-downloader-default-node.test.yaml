@@ -12,8 +12,6 @@ what_you_build: "A Logos daemon whose storage node was never started by hand."
 what_you_learn:
   - How the downloader starts the storage node when the storage module loads
   - Where the node configuration is read from, and what happens when there is none
-  - Logos environment (basecamp or logosctl) takes care of cleaning up the node
-
 prerequisites:
   - |
     **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
@@ -77,13 +75,8 @@ sections:
           - "no configuration"
 
       - title: "Start the daemon on an empty home"
-        run: |
-          set -eu
-
-          sh -c 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'
-
-          sleep 2
-        code_block: "logosctl --config-dir ./session -D > logs.txt &"
+        run: 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
+        code_block: "logosctl --config-dir ./session -D --detach"
 
   - title: "The node is up, and nobody started it"
     step: true
@@ -95,8 +88,15 @@ sections:
           and starts it.
         run: |
           set -eu
-          sleep 5
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+
+          # The node takes a few seconds to join the network
+          for _ in $(seq 30); do
+            running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
+            case "$running" in *'"result":true'*) break ;; esac
+            sleep 1
+          done
+
+          echo "$running"
         code_block: 'logosctl call storage_module isRunning'
         expect_contains:
           - "true"

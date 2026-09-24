@@ -110,7 +110,7 @@ sections:
           set -eu
           nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
         code_block: |
-          nix build 'github:logos-co/logos-package-downloader-module{release}#lgx' -o downloader-lgx
+          nix build 'github:logos-co/logos-package-downloader-module#lgx' -o downloader-lgx
         extra_run:
           run: "ls downloader-lgx/*.lgx"
 
@@ -387,8 +387,8 @@ sections:
         text: |
           The catalog is fetched with libcurl, which needs to be told to trust
           our self-signed certificate.
-        run: "sh -c 'HOME=\"$(pwd)/home\" SSL_CERT_FILE=\"$(pwd)/localhost.crt\" ./logosctl/bin/logosctl --config-dir ./session -D > logs.txt 2>&1 &'"
-        code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D > logs.txt &"
+        run: 'HOME="$(pwd)/home" SSL_CERT_FILE="$(pwd)/localhost.crt" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
+        code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D --detach"
 
       - title: "The downloader starts the node"
         text: |
@@ -396,8 +396,15 @@ sections:
           and the downloader then starts the node.
         run: |
           set -eu
-          sleep 5
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+
+          # The node takes a few seconds to join the network
+          for _ in $(seq 30); do
+            running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
+            case "$running" in *'"result":true'*) break ;; esac
+            sleep 1
+          done
+
+          echo "$running"
         code_block: 'logosctl call storage_module isRunning'
         expect_contains:
           - "true"
@@ -522,7 +529,7 @@ sections:
           cat progress.txt
 
           # The daemon reports a refused subscription here, not in progress.txt.
-          cat logs.txt
+          cat session/logs/daemon.log
 
           jq -es 'map(select(.event == "downloadProgress")) | last
                   | .data.arg1 == .data.arg2 and .data.arg2 > 0' progress.txt
@@ -619,8 +626,15 @@ sections:
         run: |
           set -eu
           ./logosctl/bin/logosctl --config-dir ./session module load storage_module
-          sleep 7
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+
+          # The node takes a few seconds to join the network
+          for _ in $(seq 30); do
+            running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
+            case "$running" in *'"result":true'*) break ;; esac
+            sleep 1
+          done
+
+          echo "$running"
         code_block: |
           logosctl module load storage_module
           logosctl call storage_module isRunning
