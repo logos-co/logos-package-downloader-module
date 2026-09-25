@@ -3,7 +3,7 @@
 
   inputs = {
     # On the in-process builder (logos-module-builder#261) until it and the chain under it merge.
-    logos-module-builder.url = "github:logos-co/logos-module-builder/feat/inproc-eligible-plain";
+    logos-module-builder.url = "github:logos-co/logos-module-builder/feat/drop-legacy-mode";
     # Cut the builder -> standalone-app -> liblogos -> ... -> builder lock cycle.
     # Safe for a core module: mkLogosModule never forces standalone-app.
     logos-module-builder.inputs.logos-standalone-app.follows = "";
