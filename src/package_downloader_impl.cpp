@@ -204,6 +204,10 @@ void PackageDownloaderImpl::startStorage() {
     if (!m_storageFetcher) {
         m_storageFetcher = std::move(fetcher);
         m_lib->setStorageFetcher(m_storageFetcher);
+
+        if (m_storageStopped && m_storageFetcher) {
+            m_storageFetcher->cancelPendingDownloads();
+        }
     }
 }
 
@@ -215,6 +219,8 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
 
     {
         std::lock_guard<std::mutex> lock(m_storageMutex);
+
+        m_storageStopped = true;
 
         if (m_storageFetcher) {
             m_storageFetcher->cancelPendingDownloads();
