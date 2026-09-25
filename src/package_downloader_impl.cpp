@@ -168,6 +168,9 @@ void PackageDownloaderImpl::onContextReady() {
         m_lib = replacement;
     }
 
+    m_storageFetcher = makeStorageFetcher(modules());
+    m_lib->setStorageFetcher(m_storageFetcher);
+
     m_cancelWatchSubscription = watchStorageReady(modules(), [this]() {
         startStorage();
     });
@@ -177,31 +180,9 @@ void PackageDownloaderImpl::startStorage() {
     // Kept until the last reply: aboutToUnload() waits for it.
     auto call = std::make_shared<PendingLibCall>(*this);
 
-    auto node = makeStorageNode(modules());
-    startStorageNode(node, [this, call](const std::string& error) {
+    startStorageNode(makeStorageNode(modules()), [call](const std::string& error) {
         if (!error.empty()) {
             fprintf(stderr, "PackageDownloaderImpl::startStorage: %s\n", error.c_str());
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(m_storageMutex);
-
-            if (m_storageFetcher) {
-                return;
-            }
-        }
-
-        auto fetcher = makeStorageFetcher(modules());
-
-        std::lock_guard<std::mutex> lock(m_storageMutex);
-
-        if (!m_storageFetcher) {
-            m_storageFetcher = std::move(fetcher);
-            m_lib->setStorageFetcher(m_storageFetcher);
-
-            if (m_storageStopped && m_storageFetcher) {
-                m_storageFetcher->cancelPendingDownloads();
-            }
         }
     });
 }
@@ -212,14 +193,8 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
         m_cancelWatchSubscription = nullptr;
     }
 
-    {
-        std::lock_guard<std::mutex> lock(m_storageMutex);
-
-        m_storageStopped = true;
-
-        if (m_storageFetcher) {
-            m_storageFetcher->cancelPendingDownloads();
-        }
+    if (m_storageFetcher) {
+        m_storageFetcher->cancelPendingDownloads();
     }
 
     std::lock_guard<std::mutex> lock(m_callsMutex);

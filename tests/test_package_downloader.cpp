@@ -371,39 +371,41 @@ void makeContextReady(PackageDownloaderImpl& impl) {
 }
 
 // Answers at once, so the start is over when fireStorageReady() returns.
-StorageNode nodeThatStarts(bool startAccepted) {
+StorageNode fakeNode(bool& started) {
     StorageNode node;
 
     node.isRunning = [](std::function<void(bool)> done) { done(false); };
     node.loadConfig = [](std::function<void(const std::string&, const std::string&)> done) { done("{}", ""); };
     node.init = [](const std::string&, std::function<void(bool)> done) { done(true); };
-    node.start = [startAccepted](std::function<void(bool)> done) { done(startAccepted); };
+    node.start = [&started](std::function<void(bool)> done) {
+        started = true;
+        done(true);
+    };
 
     return node;
 }
 
 } // namespace
 
-LOGOS_TEST(storage_ready_installs_the_storage_fetcher) {
+// Before any call is served: setStorageFetcher then never waits on the lib's
+// lock, which a first catalog fetch holds across the network.
+LOGOS_TEST(context_ready_installs_the_storage_fetcher) {
     auto t = LogosTestContext("package_downloader");
-    fakeStorageNode = nodeThatStarts(true);
     PackageDownloaderImpl impl;
-    makeContextReady(impl);
 
-    fireStorageReady();
+    makeContextReady(impl);
 
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
 }
 
-// Another consumer's start may be in flight: the node can still come up, and
-// the fetcher checks isRunning on every download.
-LOGOS_TEST(storage_ready_installs_the_storage_fetcher_when_the_start_is_refused) {
+LOGOS_TEST(storage_ready_starts_the_node) {
     auto t = LogosTestContext("package_downloader");
-    fakeStorageNode = nodeThatStarts(false);
+    bool started = false;
+    fakeStorageNode = fakeNode(started);
     PackageDownloaderImpl impl;
     makeContextReady(impl);
 
     fireStorageReady();
 
-    LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
+    LOGOS_ASSERT_TRUE(started);
 }

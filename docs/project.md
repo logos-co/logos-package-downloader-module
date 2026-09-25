@@ -206,13 +206,12 @@ single-line declaration in the header into a provider method plus an auto-genera
 - **Storage node lifecycle.** The module starts the node itself. `onContextReady()`
   subscribes to `modules_state.module_state_changed` and then asks `is_ready` once, since
   a transition that already happened is not replayed; either path calls `startStorage()`,
-  which runs `loadConfigOrDefault` → `init` → `start` on `storage_module` and installs the
-  storage fetcher in the library. The node start runs on every `ready`, so a
-  `storage_module` that restarted gets its node back; a second start is refused by
-  `storage_module` itself. The fetcher is built once: building one takes subscriptions
-  that cannot be undone. Nothing but the fetcher check runs
-  under `m_storageMutex` — every call to another module is blocking, and a blocking call
-  spins a nested event loop that re-enters.
+  which runs `loadConfigOrDefault` → `init` → `start` on `storage_module` with async calls.
+  The node start runs on every `ready`, so a `storage_module` that restarted gets its node
+  back; a second start is refused by `storage_module` itself. The storage fetcher is built
+  once and installed in the library in `onContextReady()`, before any call is served:
+  `setStorageFetcher` takes the library's lock, which a first catalog fetch holds across
+  the network. The fetcher checks the storage module and the node on every download.
   A download never starts the node: it is shared, and the storage UI may have stopped it
   on purpose. A node that is down answers an empty network, and the library falls back
   to HTTPS.

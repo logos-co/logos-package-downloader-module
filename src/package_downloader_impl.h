@@ -124,12 +124,6 @@ private:
 
     std::function<void()> m_cancelWatchSubscription;
 
-    // Guards m_storageFetcher and m_storageStopped.
-    std::mutex m_storageMutex;
-
-    // Set by aboutToUnload(): a fetcher installed after it starts cancelled.
-    bool m_storageStopped = false;
-
     // Guards m_pendingLibCalls and m_unloading.
     std::mutex m_callsMutex;
 
