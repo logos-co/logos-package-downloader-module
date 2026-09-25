@@ -526,6 +526,12 @@ sections:
         run: |
           set -eu
 
+          # downloadDone follows the last downloadProgress
+          for _ in $(seq 30); do
+            grep -q downloadDone progress.txt && break
+            sleep 1
+          done
+
           kill "$(cat watch.pid)"
 
           cat progress.txt
@@ -541,10 +547,29 @@ sections:
         expect_contains:
           - "true"
 
+      - title: "Check the download source"
+        text: |
+          `downloadDone` fires once the package is downloaded. Its `arg1` is the
+          URL actually used: here the storage one, not the HTTPS fallback.
+        run: |
+          jq -es --arg src "logos:logos.dev:$(cat cid.txt)" \
+            'map(select(.event == "downloadDone")) | last | .data.arg1 == $src' progress.txt
+        code_block: |
+          jq -es --arg src "logos:logos.dev:$(cat cid.txt)" \
+            'map(select(.event == "downloadDone")) | last | .data.arg1 == $src' progress.txt
+        expect_contains:
+          - "true"
+
       - title: "Verify the downloaded file exists"
         run: 'ls -l "$(cat path.txt)"'
         expect_contains:
           - "package_downloader"
+
+      - title: "The downloaded file is the uploaded package"
+        run: 'cmp "$(cat path.txt)" downloader-lgx/*.lgx && echo same'
+        code_block: 'cmp "$(cat path.txt)" downloader-lgx/*.lgx'
+        expect_contains:
+          - "same"
 
       - title: "Verify the file is available on the Storage node"
         run: './logosctl/bin/logosctl --config-dir ./session call storage_module exists "$(cat cid.txt)"'
