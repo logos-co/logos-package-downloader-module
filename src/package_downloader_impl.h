@@ -1,12 +1,16 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <logos_json.h>
 #include <logos_module_context.h>
 
 namespace lgpd { class PackageDownloaderLib; }
+class StorageFetcher;
 
 /**
  * Bridges the lgpd C++ library to the Logos module ABI.
@@ -81,6 +85,9 @@ public:
     // verification and installation follow the last sample, so
     // received == total means "downloaded", not "done".
     //
+    // downloadDone fires per package on success only. `source` is the URL
+    // actually used: `logos:<network>:<cid>` or the https one.
+    //
     // Requires concurrency:"multi" (metadata.json). A single-threaded module
     // holds the QtRO source thread for the whole download, and ModuleProxy
     // always QUEUES event emission onto it, so every sample would land in one
@@ -88,6 +95,7 @@ public:
 logos_events:
     void catalogChanged();
     void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total);
+    void downloadDone(const std::string& packageName, const std::string& source);
 
 protected:
     // Fires once, after the framework has populated the LogosModuleContext
@@ -98,6 +106,31 @@ protected:
     // framework (lgpd CLI, unit tests) still see a working lib.
     void onContextReady() override;
 
+    LogosShutdown aboutToUnload() override;
+
 private:
+    // Counts a call that uses m_lib, for aboutToUnload(). Defined in the .cpp:
+    // the codegen reads this header line by line and would take its members
+    // for module methods.
+    class PendingLibCall;
+
+    void startStorage();
+
     lgpd::PackageDownloaderLib* m_lib;
+
+    // Save the storage fetcher so it doesn't need
+    // to unsubscribe and resubscribe to storage_module events.
+    std::shared_ptr<StorageFetcher> m_storageFetcher;
+
+    std::function<void()> m_cancelWatchSubscription;
+
+    // Guards m_pendingLibCalls and m_unloading.
+    std::mutex m_callsMutex;
+
+    // Calls still using m_lib: aboutToUnload() waits for it to reach 0.
+    int m_pendingLibCalls = 0;
+
+    // Set when aboutToUnload() returned Asynchronous: the last call to end
+    // then calls unloadFinished().
+    bool m_unloading = false;
 };
