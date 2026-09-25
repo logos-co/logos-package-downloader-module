@@ -208,6 +208,11 @@ void PackageDownloaderImpl::startStorage() {
 }
 
 LogosShutdown PackageDownloaderImpl::aboutToUnload() {
+    if (m_cancelWatchSubscription) {
+        m_cancelWatchSubscription();
+        m_cancelWatchSubscription = nullptr;
+    }
+
     {
         std::lock_guard<std::mutex> lock(m_storageMutex);
 

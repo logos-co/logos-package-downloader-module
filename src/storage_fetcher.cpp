@@ -12,6 +12,12 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+
+const lgpd::FetchResult unloading{false, "the module is unloading"};
+
+}
+
 StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDone onStorageDownloadDone,
                                OnStorageDownloadProgress onStorageDownloadProgress,
                                DownloadCancel downloadCancel, DownloadManifest downloadManifest,
@@ -53,9 +59,9 @@ StorageFetcher::~StorageFetcher() {
 }
 
 void StorageFetcher::cancelPendingDownloads() {
-    const lgpd::FetchResult unloading{false, "the module is unloading"};
-
     std::lock_guard<std::mutex> lock(m_mutex);
+
+    m_unloading = true;
 
     for (auto& [cid, pending] : m_pending) {
         pending.result.set_value(unloading);
@@ -77,6 +83,10 @@ lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
     std::future<lgpd::FetchResult> done;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (m_unloading) {
+            return unloading;
+        }
 
         if (m_pendingManifests.count(cid) > 0) {
             return {false, "a manifest fetch for " + cid + " is already in progress"};
@@ -190,6 +200,10 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
     {
         // Get a mutex for m_pending
         std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (m_unloading) {
+            return unloading;
+        }
 
         if (m_pending.count(cid) > 0) {
             return {false, "a download of " + cid + " is already in progress"};

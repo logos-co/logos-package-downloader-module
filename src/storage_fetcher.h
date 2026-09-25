@@ -86,6 +86,8 @@ private:
     Unsubscribe m_unsubscribeManifest;
 
     std::mutex m_mutex;
+
+    bool m_unloading = false;
     std::map<std::string, Pending> m_pending;
     std::map<std::string, std::promise<lgpd::FetchResult>> m_pendingManifests;
 };

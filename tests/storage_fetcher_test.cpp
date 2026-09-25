@@ -289,6 +289,26 @@ LOGOS_TEST(cancelPendingDownloads_fails_a_manifest_in_progress) {
     LOGOS_ASSERT_TRUE(r.error.find("unloading") != std::string::npos);
 }
 
+LOGOS_TEST(getToFile_downloads_nothing_after_cancelPendingDownloads) {
+    bool downloaded = false;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    Manifest manifest;
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+
+    fetcher.cancelPendingDownloads();
+    lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.error.find("unloading") != std::string::npos);
+    LOGOS_ASSERT_FALSE(downloaded);
+}
+
 LOGOS_TEST(destroying_the_fetcher_cancels_its_subscriptions) {
     int cancelled = 0;
 
