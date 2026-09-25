@@ -27,11 +27,9 @@ public:
     using NodeRunning = std::function<bool()>;
     using Network = std::function<std::string()>;
 
-    // Default timeout for the manifest: 5 minutes. A net against a lost event,
-    // not the bound of the retry: storage always emits
-    // storageDownloadManifestDone, failure included.
-    // Default timeout for the transfer: 10 minutes, same as the https fetcher's
-    // CURLOPT_TIMEOUT, so storage does not give up before it.
+    // Default timeout for the manifest: 60 seconds.
+    // The transfer has no total limit: it gives up
+    // after 60 seconds without a progress event.
     StorageFetcher(
         DownloadToUrl downloadToUrl,
         OnStorageDownloadDone onStorageDownloadDone,
@@ -41,8 +39,8 @@ public:
         OnStorageDownloadManifestDone onStorageDownloadManifestDone,
         NodeRunning nodeRunning,
         Network network,
-        std::chrono::milliseconds downloadTimeout = std::chrono::minutes(10),
-        std::chrono::milliseconds manifestTimeout = std::chrono::minutes(5));
+        std::chrono::milliseconds stallTimeout = std::chrono::seconds(60),
+        std::chrono::milliseconds manifestTimeout = std::chrono::seconds(60));
 
     ~StorageFetcher() override;
 
@@ -66,6 +64,7 @@ private:
         std::promise<lgpd::FetchResult> result;
         lgpd::ProgressFn onProgress;
         std::uint64_t received = 0;
+        std::chrono::steady_clock::time_point lastProgress;
     };
 
     DownloadToUrl m_downloadToUrl;
@@ -78,7 +77,7 @@ private:
     NodeRunning m_nodeRunning;
     Network m_network;
 
-    std::chrono::milliseconds m_downloadTimeout;
+    std::chrono::milliseconds m_stallTimeout;
     std::chrono::milliseconds m_manifestTimeout;
 
     Unsubscribe m_unsubscribeDone;

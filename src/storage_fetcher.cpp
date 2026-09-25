@@ -24,7 +24,7 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
                                OnStorageDownloadManifestDone onStorageDownloadManifestDone,
                                NodeRunning nodeRunning,
                                Network network,
-                               std::chrono::milliseconds downloadTimeout,
+                               std::chrono::milliseconds stallTimeout,
                                std::chrono::milliseconds manifestTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
     , m_downloadCancel(std::move(downloadCancel))
@@ -34,7 +34,7 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_onStorageDownloadManifestDone(std::move(onStorageDownloadManifestDone))
     , m_nodeRunning(std::move(nodeRunning))
     , m_network(std::move(network))
-    , m_downloadTimeout(downloadTimeout)
+    , m_stallTimeout(stallTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
     m_unsubscribeDone = m_onStorageDownloadDone([this](const std::string& payload) {
@@ -213,6 +213,7 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
 
         done = pending.result.get_future();
         pending.onProgress = onProgress;
+        pending.lastProgress = std::chrono::steady_clock::now();
 
         // mutex is released here when lock goes out of scope
     }
@@ -226,28 +227,43 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
         return {false, std::move(err)};
     }
 
-    if (done.wait_for(m_downloadTimeout) != std::future_status::ready) {
-        bool dropped = false;
+    bool stalled = false;
+
+    while (!stalled) {
+        std::chrono::steady_clock::time_point deadline;
         {
             // Get a mutex for m_pending
             std::lock_guard<std::mutex> lock(m_mutex);
 
-            // We double check to make sure that the download is still pending and
-            // wasn't completed while we were waiting for the lock.
-            dropped = m_pending.erase(cid) > 0;
+            auto it = m_pending.find(cid);
 
-            // mutex is released here when lock goes out of scope
-        }
-
-        if (dropped) {
-            std::string error = "timed out waiting for the download of " + cid;
-
-            if (std::string cancelError = m_downloadCancel(cid); !cancelError.empty()) {
-                error += " (cancel failed: " + cancelError + ")";
+            // The done event erased it: the result is in the future.
+            if (it == m_pending.end()) {
+                break;
             }
 
-            return {false, error};
+            deadline = it->second.lastProgress + m_stallTimeout;
+
+            if (std::chrono::steady_clock::now() >= deadline) {
+                m_pending.erase(it);
+                stalled = true;
+                break;
+            }
         }
+
+        if (done.wait_until(deadline) == std::future_status::ready) {
+            break;
+        }
+    }
+
+    if (stalled) {
+        std::string error = "timed out waiting for data for the download of " + cid;
+
+        if (std::string cancelError = m_downloadCancel(cid); !cancelError.empty()) {
+            error += " (cancel failed: " + cancelError + ")";
+        }
+
+        return {false, error};
     }
 
     return done.get();

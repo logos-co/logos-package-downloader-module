@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -65,6 +66,52 @@ struct Manifest {
         };
     }
 };
+
+// A transfer that lasts longer than the stall timeout, with progress events
+// always closer together than it.
+lgpd::FetchResult downloadWithSteadyProgress(const lgpd::ProgressFn& onProgress) {
+    std::function<void(const std::string&)> fireDone;
+    std::function<void(const std::string&)> fireProgress;
+    std::thread storage;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string& cid, const std::string&) {
+            storage = std::thread([&, cid]() {
+                for (int i = 0; i < 20; ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    fireProgress(buildProgressPayload(cid, 100, 2000));
+                }
+
+                fireDone(buildPayload(cid, true));
+            });
+
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [&](std::function<void(const std::string&)> callback) {
+            fireDone = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+
+    StorageFetcher::OnStorageDownloadProgress onStorageDownloadProgress =
+        [&](std::function<void(const std::string&)> callback) {
+            fireProgress = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+
+    const std::chrono::milliseconds stallTimeout(200);
+
+    Manifest manifest;
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, onStorageDownloadProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, stallTimeout, shortTimeout);
+
+    lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx", onProgress);
+
+    storage.join();
+
+    return r;
+}
 
 } // namespace
 
@@ -366,6 +413,18 @@ LOGOS_TEST(getToFile_times_out_when_the_manifest_never_arrives) {
     LOGOS_ASSERT_FALSE(r.ok);
     LOGOS_ASSERT_TRUE(r.error.find("timed out") != std::string::npos);
     LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(getToFile_keeps_a_download_that_makes_progress) {
+    lgpd::FetchResult r = downloadWithSteadyProgress([](std::uint64_t, std::uint64_t) {});
+
+    LOGOS_ASSERT_TRUE(r.ok);
+}
+
+LOGOS_TEST(getToFile_keeps_a_download_that_makes_progress_without_a_progress_callback) {
+    lgpd::FetchResult r = downloadWithSteadyProgress(lgpd::ProgressFn{});
+
+    LOGOS_ASSERT_TRUE(r.ok);
 }
 
 LOGOS_TEST(getToFile_accumulates_the_progress_data_size) {
