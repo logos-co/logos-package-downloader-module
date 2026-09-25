@@ -140,3 +140,45 @@ sections:
       - title: "Stop the daemon"
         run: './logosctl/bin/logosctl --config-dir ./session stop'
         code_block: "logosctl stop"
+
+  - title: "Shut down while the node starts"
+    step: true
+    text: |
+      Starting the daemon starts the node, which takes a few seconds. Stopping
+      the daemon during that time must still end cleanly: the daemon exits,
+      and nothing crashes.
+    steps:
+      - title: "Start the daemon and stop it at once"
+        run: |
+          set -eu
+
+          HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach
+          # Not a terminal: status prints JSON.
+          pid=$(./logosctl/bin/logosctl --config-dir ./session status | jq -r '.daemon.pid // empty')
+          if [ -z "$pid" ]; then
+            echo "no daemon pid"
+            exit 1
+          fi
+
+          ./logosctl/bin/logosctl --config-dir ./session stop
+
+          for _ in $(seq 100); do
+            [ -e "/proc/$pid" ] || break
+            sleep 0.1
+          done
+
+          if [ -e "/proc/$pid" ]; then
+            echo "the daemon is still running"
+            exit 1
+          fi
+
+          if grep -E "Segmentation fault|terminate called|SIGSEGV|SIGABRT" session/logs/daemon.log; then
+            exit 1
+          fi
+
+          echo "stopped cleanly"
+        code_block: |
+          HOME=$(pwd)/home logosctl --config-dir ./session -D --detach
+          logosctl stop
+        expect_contains:
+          - "stopped cleanly"

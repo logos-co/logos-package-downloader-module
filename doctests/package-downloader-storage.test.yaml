@@ -695,11 +695,139 @@ sections:
           logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
         check_file: "storage-again-path.txt"
 
-  - title: "Shut down"
+  - title: "Shut down during a storage download"
+    step: true
+    text: |
+      The downloader cannot cancel a download in progress. Stopping the daemon
+      while one waits must still end cleanly: the daemon exits, and nothing
+      crashes.
+    steps:
+      - title: "Leave the package with no provider"
+        text: |
+          Stop the release node and remove the package from our node: the
+          downloader now waits for a manifest that no node can give.
+        run: |
+          set -eu
+          kill "$(cat node.pid)"
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module remove "$(cat cid.txt)"
+          rm -f "$(cat storage-again-path.txt)"
+        code_block: |
+          logosctl call storage_module remove "$(cat cid.txt)"
+
+      - title: "Stop the daemon during the download"
+        run: |
+          set -eu
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
+            > shutdown-storage.json 2>&1 &
+          sleep 3
+
+          # Not a terminal: status prints JSON.
+          pid=$(./logosctl/bin/logosctl --config-dir ./session status | jq -r '.daemon.pid // empty')
+          if [ -z "$pid" ]; then
+            echo "no daemon pid"
+            exit 1
+          fi
+
+          ./logosctl/bin/logosctl --config-dir ./session stop
+
+          for _ in $(seq 100); do
+            [ -e "/proc/$pid" ] || break
+            sleep 0.1
+          done
+
+          if [ -e "/proc/$pid" ]; then
+            echo "the daemon is still running"
+            exit 1
+          fi
+
+          if grep -E "Segmentation fault|terminate called|SIGSEGV|SIGABRT" session/logs/daemon.log; then
+            exit 1
+          fi
+
+          echo "stopped cleanly"
+        code_block: |
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" &
+          logosctl stop
+        expect_contains:
+          - "stopped cleanly"
+
+  - title: "Shut down during an HTTPS download"
     step: true
     steps:
-      - title: "Stop the daemon"
+      - title: "Start the daemon again"
+        run: 'HOME="$(pwd)/home" SSL_CERT_FILE="$(pwd)/localhost.crt" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
+        code_block: "HOME=$(pwd)/home SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D --detach"
+
+      - title: "Leave only an HTTPS server that never answers"
+        text: |
+          Without the storage module, the downloader goes to HTTPS at once. The
+          server accepts the connection and never answers, so the download
+          waits.
         run: |
+          set -eu
+
+          ./logosctl/bin/logosctl --config-dir ./session module unload storage_module
+
+          kill "$(cat caddy.pid)"
+          sleep 1
+
+          python3 -c '
+          import socket
+          server = socket.socket()
+          server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          server.bind(("127.0.0.1", 8443))
+          server.listen()
+          connections = []
+          while True:
+              connections.append(server.accept()[0])
+          ' > /dev/null 2>&1 &
+          echo $! > hang.pid
+
+          sleep 1
+          echo "server up"
+        code_block: |
+          logosctl module unload storage_module
+        expect_contains:
+          - "server up"
+
+      - title: "Stop the daemon during the download"
+        run: |
+          set -eu
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" \
+            > shutdown-https.json 2>&1 &
+          sleep 3
+
+          # Not a terminal: status prints JSON.
+          pid=$(./logosctl/bin/logosctl --config-dir ./session status | jq -r '.daemon.pid // empty')
+          if [ -z "$pid" ]; then
+            echo "no daemon pid"
+            exit 1
+          fi
+
           ./logosctl/bin/logosctl --config-dir ./session stop
-          kill "$(cat caddy.pid)" "$(cat node.pid)"
-        code_block: "logosctl stop"
+
+          for _ in $(seq 100); do
+            [ -e "/proc/$pid" ] || break
+            sleep 0.1
+          done
+
+          if [ -e "/proc/$pid" ]; then
+            echo "the daemon is still running"
+            exit 1
+          fi
+
+          if grep -E "Segmentation fault|terminate called|SIGSEGV|SIGABRT" session/logs/daemon.log; then
+            exit 1
+          fi
+
+          echo "stopped cleanly"
+        code_block: |
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" "" &
+          logosctl stop
+        expect_contains:
+          - "stopped cleanly"
+
+      - title: "Stop the HTTPS server"
+        run: 'kill "$(cat hang.pid)"'
