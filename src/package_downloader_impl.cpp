@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -165,9 +166,10 @@ void PackageDownloaderImpl::onContextReady() {
 
 void PackageDownloaderImpl::startStorage() {
     auto storageNode = makeStorageNode(modules());
+    const std::string error = startStorageNode(storageNode);
 
-    if (!startStorageNode(storageNode).empty()) {
-        return;
+    if (!error.empty()) {
+        fprintf(stderr, "PackageDownloaderImpl::startStorage: %s\n", error.c_str());
     }
 
     {
