@@ -163,16 +163,17 @@ sections:
           ./logosctl/bin/logosctl --config-dir ./session stop
 
           for _ in $(seq 100); do
-            [ -e "/proc/$pid" ] || break
+            kill -0 "$pid" 2>/dev/null || break
             sleep 0.1
           done
 
-          if [ -e "/proc/$pid" ]; then
+          if kill -0 "$pid" 2>/dev/null; then
             echo "the daemon is still running"
             exit 1
           fi
 
-          if grep -E "Segmentation fault|terminate called|SIGSEGV|SIGABRT" session/logs/daemon.log; then
+          # A module host that crashes prints `FATAL: module '<name>' crashed`.
+          if grep -E "FATAL: module|terminate called|libc\+\+abi|Segmentation fault|SIGSEGV|SIGABRT" session/logs/daemon.log; then
             exit 1
           fi
 
