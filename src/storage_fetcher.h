@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -51,8 +50,6 @@ public:
                                 const lgpd::ProgressFn& onProgress) override;
 
 private:
-    void ensureSubscribed();
-
     lgpd::FetchResult fetchManifest(const std::string& cid);
 
     void onDownloadDone(const std::string& payload);
@@ -78,10 +75,8 @@ private:
     std::chrono::milliseconds m_downloadTimeout;
     std::chrono::milliseconds m_manifestTimeout;
 
-    std::atomic<bool> m_subscribed{false};
-    std::atomic<bool> m_manifestSubscribed{false};
-
-    bool m_progressSubscribed = false;
+    bool m_subscribed = false;
+    bool m_manifestSubscribed = false;
 
     std::mutex m_mutex;
     std::map<std::string, Pending> m_pending;

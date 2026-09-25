@@ -31,34 +31,20 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_downloadTimeout(downloadTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
-    ensureSubscribed();
-}
+    m_subscribed = m_onStorageDownloadDone([this](const std::string& payload) {
+        onDownloadDone(payload);
+    });
 
-void StorageFetcher::ensureSubscribed() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    m_onStorageDownloadProgress([this](const std::string& payload) {
+        onDownloadProgress(payload);
+    });
 
-    if (!m_subscribed) {
-        m_subscribed = m_onStorageDownloadDone([this](const std::string& payload) {
-            onDownloadDone(payload);
-        });
-    }
-
-    if (!m_progressSubscribed) {
-        m_progressSubscribed = m_onStorageDownloadProgress([this](const std::string& payload) {
-            onDownloadProgress(payload);
-        });
-    }
-
-    if (!m_manifestSubscribed) {
-        m_manifestSubscribed = m_onStorageDownloadManifestDone([this](const std::string& payload) {
-            onManifestDone(payload);
-        });
-    }
+    m_manifestSubscribed = m_onStorageDownloadManifestDone([this](const std::string& payload) {
+        onManifestDone(payload);
+    });
 }
 
 lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
-    ensureSubscribed();
-
     if (!m_manifestSubscribed) {
         return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
     }
@@ -152,8 +138,6 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
     if (!m_nodeRunning()) {
         return {false, "the storage node is not running"};
     }
-
-    ensureSubscribed();
 
     if (!m_subscribed) {
         return {false, "not subscribed to storage_module's storageDownloadDone event"};
