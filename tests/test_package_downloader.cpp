@@ -14,6 +14,7 @@
 
 #include <logos_test.h>
 #include "package_downloader_impl.h"
+#include "mocks/mock_storage_fetcher_factory.h"
 
 #include <string>
 
@@ -334,4 +335,53 @@ LOGOS_TEST(downloadResolvedDependencies_emits_no_progress_when_resolution_fails)
 
     impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_FALSE(events.has("downloadProgress"));
+}
+
+// ── Storage node bring-up ────────────────────────────────────────────────
+
+namespace {
+
+// Only an address: the mocked factory never dereferences it.
+int unusedModules = 0;
+
+void makeContextReady(PackageDownloaderImpl& impl) {
+    impl._logosCoreSetLogosModulesPtr_(&unusedModules);
+    impl._logosCoreSetContext_("", "", "");
+}
+
+StorageNode nodeThatStarts(bool startAccepted) {
+    StorageNode node;
+
+    node.isRunning = []() { return false; };
+    node.loadConfig = [](std::string&) { return std::string("{}"); };
+    node.init = [](const std::string&) { return true; };
+    node.start = [startAccepted]() { return startAccepted; };
+
+    return node;
+}
+
+} // namespace
+
+LOGOS_TEST(storage_ready_installs_the_storage_fetcher) {
+    auto t = LogosTestContext("package_downloader");
+    fakeStorageNode = nodeThatStarts(true);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    fireStorageReady();
+
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
+}
+
+// Another consumer's start may be in flight: the node can still come up, and
+// the fetcher checks isRunning on every download.
+LOGOS_TEST(storage_ready_installs_the_storage_fetcher_when_the_start_is_refused) {
+    auto t = LogosTestContext("package_downloader");
+    fakeStorageNode = nodeThatStarts(false);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    fireStorageReady();
+
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
 }
