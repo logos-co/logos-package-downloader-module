@@ -133,4 +133,32 @@ std::string RepositoryRegistry::setEnabled(const std::string& /*url*/, bool /*en
     return mockStr("setEnabled", "");
 }
 
+DownloadSource RepositoryRegistry::downloadSource() const {
+    return downloadSource_;
+}
+
+std::string RepositoryRegistry::setDownloadSource(DownloadSource source) {
+    LOGOS_CMOCK_RECORD("setDownloadSource");
+    downloadSource_ = source;
+    return mockStr("setDownloadSource", "");   // the save error, "" == success
+}
+
+// ── Download source names (real logic: the impl parses what callers send) ─
+
+std::string downloadSourceName(DownloadSource source) {
+    switch (source) {
+        case DownloadSource::Logos: return "logos";
+        case DownloadSource::Http:  return "http";
+        case DownloadSource::Any:   break;
+    }
+    return "any";
+}
+
+std::optional<DownloadSource> parseDownloadSource(const std::string& name) {
+    if (name == "any")   return DownloadSource::Any;
+    if (name == "logos") return DownloadSource::Logos;
+    if (name == "http")  return DownloadSource::Http;
+    return std::nullopt;
+}
+
 } // namespace lgpd

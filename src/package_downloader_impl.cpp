@@ -345,6 +345,30 @@ LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrN
     return LogosList::parse(call.lib()->getCatalogForRepoJson(repoUrlOrName));
 }
 
+std::string PackageDownloaderImpl::getDownloadSource() {
+    PendingLibCall call(*this);
+    if (!call) return {};
+    return lgpd::downloadSourceName(call.lib()->registry().downloadSource());
+}
+
+LogosMap PackageDownloaderImpl::setDownloadSource(const std::string& source) {
+    PendingLibCall call(*this);
+    if (!call) return makeResult(kUnloading);
+
+    const auto parsed = lgpd::parseDownloadSource(source);
+    if (!parsed) {
+        return makeResult("unknown download source '" + source + "': expected any, logos or http");
+    }
+
+    lgpd::RepositoryRegistry& registry = call.lib()->registry();
+    const bool changed = registry.downloadSource() != *parsed;
+    const std::string err = registry.setDownloadSource(*parsed);
+
+    // The catalog's availability marks follow the source.
+    if (err.empty() && changed && !call.unloading()) catalogChanged();
+    return makeResult(err);
+}
+
 LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
