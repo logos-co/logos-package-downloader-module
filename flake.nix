@@ -7,7 +7,7 @@
     # Safe for a core module: mkLogosModule never forces standalone-app.
     logos-module-builder.inputs.logos-standalone-app.follows = "";
     logos-package-downloader.url = "github:logos-co/logos-package-downloader";
-    storage_module.url = "github:logos-co/logos-storage-module";
+    storage_module.url = "github:logos-co/logos-storage-module/v3.0.0-rc1";
     modules_state.url = "github:logos-co/logos-modules-state-module";
   };
 

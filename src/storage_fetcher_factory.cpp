@@ -13,6 +13,12 @@ namespace {
 
 constexpr int64_t chunkSize = 65536;
 
+// Packages do not go over Mix unless an option asks for it.
+constexpr bool isPrivate = false;
+
+// The node neither announces nor serves the packages it downloaded.
+constexpr bool advertise = false;
+
 StorageFetcher::Unsubscribe unsubscribeOf(const logos::SubHandle& handle) {
     if (!handle) {
         return {};
@@ -29,7 +35,7 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules) {
     StorageFetcher::DownloadToUrl downloadToUrl =
         [&modules](const std::string& cid, const std::string& path) {
             const StdLogosResult r =
-                modules.storage_module.downloadToUrl(cid, path, false, chunkSize);
+                modules.storage_module.downloadToUrl(cid, path, false, chunkSize, isPrivate, advertise);
 
             return r.success ? std::string() : r.error;
         };
@@ -53,7 +59,7 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules) {
 
     StorageFetcher::DownloadManifest downloadManifest =
         [&modules](const std::string& cid) {
-            const StdLogosResult r = modules.storage_module.downloadManifest(cid);
+            const StdLogosResult r = modules.storage_module.downloadManifest(cid, isPrivate, advertise);
 
             return r.success ? std::string() : r.error;
         };
