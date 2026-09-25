@@ -380,6 +380,8 @@ void StorageFetcher::onDownloadProgress(const std::string& payload) {
 
     Pending& pending = m_pending[cid];
 
+    pending.lastProgress = std::chrono::steady_clock::now();
+
     if (!pending.onProgress) {
         return;
     }
