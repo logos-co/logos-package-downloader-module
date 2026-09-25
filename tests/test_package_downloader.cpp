@@ -283,6 +283,8 @@ LOGOS_TEST(downloadPinned_emits_downloadDone_with_the_source) {
 LOGOS_TEST(downloadPinned_emits_no_downloadDone_when_the_download_fails) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
+    // The real lib writes the source before checks that can still fail.
+    t.mockCFunction("downloadSource").returns("https://example.com/wallet_module-1.0.0.lgx");
     PackageDownloaderImpl impl;
 
     impl.downloadPinned("", "wallet_module", "", "");
@@ -322,6 +324,24 @@ LOGOS_TEST(downloadResolvedDependencies_attributes_progress_per_package) {
     LOGOS_ASSERT_EQ(progress[1].data, std::string("chat_module:4096/4096"));
     LOGOS_ASSERT_EQ(progress[2].data, std::string("waku_module:0/4096"));
     LOGOS_ASSERT_EQ(progress[3].data, std::string("waku_module:4096/4096"));
+}
+
+LOGOS_TEST(downloadResolvedDependencies_emits_downloadDone_with_the_source) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("resolveDependenciesJson").returns(
+        R"([{"name":"chat_module","version":"2.0.0","rootHash":"h2","repositoryUrl":"r"},)"
+        R"({"name":"waku_module","version":"1.0.0","rootHash":"h1","repositoryUrl":"r"}])");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/pkg.lgx");
+    t.mockCFunction("downloadSource").returns("https://example.com/pkg.lgx");
+    PackageDownloaderImpl impl;
+
+    impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
+
+    auto done = events.all("downloadDone");
+    LOGOS_ASSERT_EQ(done.size(), static_cast<size_t>(2));
+    LOGOS_ASSERT_EQ(done[0].data, std::string("chat_module:https://example.com/pkg.lgx"));
+    LOGOS_ASSERT_EQ(done[1].data, std::string("waku_module:https://example.com/pkg.lgx"));
 }
 
 // A resolver error short-circuits before any transfer, so there is nothing
