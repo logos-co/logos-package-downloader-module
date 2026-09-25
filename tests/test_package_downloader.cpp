@@ -401,11 +401,16 @@ LOGOS_TEST(context_ready_installs_the_storage_fetcher) {
 LOGOS_TEST(storage_ready_starts_the_node) {
     auto t = LogosTestContext("package_downloader");
     bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
     fakeStorageNode = fakeNode(started);
     PackageDownloaderImpl impl;
     makeContextReady(impl);
 
     fireStorageReady();
+
+    // Before the assertion, which may end the test: the fake holds a
+    // reference to `started`.
+    fakeStorageNode = defaultNode;
 
     LOGOS_ASSERT_TRUE(started);
 }
