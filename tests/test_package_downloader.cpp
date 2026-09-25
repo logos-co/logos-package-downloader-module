@@ -16,7 +16,7 @@
 #include "package_downloader_impl.h"
 #include "mocks/mock_storage_fetcher_factory.h"
 
-#include <future>
+#include <functional>
 #include <string>
 
 // ── Repository management ────────────────────────────────────────────────
@@ -370,23 +370,14 @@ void makeContextReady(PackageDownloaderImpl& impl) {
     impl._logosCoreSetContext_("", "", "");
 }
 
-// The storage start does not block: wait for its thread, as the host does.
-void waitForStorageStart(PackageDownloaderImpl& impl) {
-    std::promise<void> finished;
-    impl._logosCoreSetUnloadFinished_([&finished]() { finished.set_value(); });
-
-    if (impl._logosCoreAboutToUnload_() == LogosShutdown::Asynchronous) {
-        finished.get_future().wait();
-    }
-}
-
+// Answers at once, so the start is over when fireStorageReady() returns.
 StorageNode nodeThatStarts(bool startAccepted) {
     StorageNode node;
 
-    node.isRunning = []() { return false; };
-    node.loadConfig = [](std::string&) { return std::string("{}"); };
-    node.init = [](const std::string&) { return true; };
-    node.start = [startAccepted]() { return startAccepted; };
+    node.isRunning = [](std::function<void(bool)> done) { done(false); };
+    node.loadConfig = [](std::function<void(const std::string&, const std::string&)> done) { done("{}", ""); };
+    node.init = [](const std::string&, std::function<void(bool)> done) { done(true); };
+    node.start = [startAccepted](std::function<void(bool)> done) { done(startAccepted); };
 
     return node;
 }
@@ -400,7 +391,6 @@ LOGOS_TEST(storage_ready_installs_the_storage_fetcher) {
     makeContextReady(impl);
 
     fireStorageReady();
-    waitForStorageStart(impl);
 
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
 }
@@ -414,7 +404,6 @@ LOGOS_TEST(storage_ready_installs_the_storage_fetcher_when_the_start_is_refused)
     makeContextReady(impl);
 
     fireStorageReady();
-    waitForStorageStart(impl);
 
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
 }

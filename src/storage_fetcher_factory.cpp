@@ -126,32 +126,32 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
 StorageNode makeStorageNode(LogosModules& modules) {
     StorageNode node;
 
-    node.isRunning = [&modules]() {
-        return modules.storage_module.isRunning();
+    node.isRunning = [&modules](std::function<void(bool)> done) {
+        modules.storage_module.isRunningAsync(std::move(done));
     };
 
-    node.loadConfig = [&modules](std::string& error) {
-        const StdLogosResult r = modules.storage_module.loadConfigOrDefault();
+    node.loadConfig = [&modules](std::function<void(const std::string&, const std::string&)> done) {
+        modules.storage_module.loadConfigOrDefaultAsync([done](StdLogosResult r) {
+            if (!r.success) {
+                done({}, r.error);
+                return;
+            }
 
-        if (!r.success) {
-            error = r.error;
-            return std::string();
-        }
+            if (!r.value.is_string()) {
+                done({}, "the storage module did not return a configuration");
+                return;
+            }
 
-        if (!r.value.is_string()) {
-            error = "the storage module did not return a configuration";
-            return std::string();
-        }
-
-        return r.value.get<std::string>();
+            done(r.value.get<std::string>(), {});
+        });
     };
 
-    node.init = [&modules](const std::string& config) {
-        return modules.storage_module.init(config);
+    node.init = [&modules](const std::string& config, std::function<void(bool)> done) {
+        modules.storage_module.initAsync(config, std::move(done));
     };
 
-    node.start = [&modules]() {
-        return modules.storage_module.start();
+    node.start = [&modules](std::function<void(bool)> done) {
+        modules.storage_module.startAsync(std::move(done));
     };
 
     return node;

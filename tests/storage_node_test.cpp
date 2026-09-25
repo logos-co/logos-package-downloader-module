@@ -4,6 +4,7 @@
 #include <logos_test.h>
 #include "storage_node.h"
 
+#include <functional>
 #include <string>
 
 namespace {
@@ -24,28 +25,38 @@ struct FakeNode {
     StorageNode node() {
         StorageNode n;
 
-        n.isRunning = [this]() {
-            return nodeRunning;
+        n.isRunning = [this](std::function<void(bool)> done) {
+            done(nodeRunning);
         };
 
-        n.loadConfig = [this](std::string& error) {
-            error = configError;
-            return config;
+        n.loadConfig = [this](std::function<void(const std::string&, const std::string&)> done) {
+            done(config, configError);
         };
 
-        n.init = [this](const std::string& cfg) {
+        n.init = [this](const std::string& cfg, std::function<void(bool)> done) {
             initCalled = true;
             initConfig = cfg;
-            return initAccepted;
+            done(initAccepted);
         };
 
-        n.start = [this]() {
+        n.start = [this](std::function<void(bool)> done) {
             startCalled = true;
             nodeRunning = nodeRunning || runningAfterStart;
-            return startAccepted;
+            done(startAccepted);
         };
 
         return n;
+    }
+
+    // The fake answers at once, so the start is over when this returns.
+    std::string start() {
+        std::string error = "startStorageNode never called done";
+
+        startStorageNode(node(), [&error](const std::string& result) {
+            error = result;
+        });
+
+        return error;
     }
 };
 
@@ -54,7 +65,7 @@ struct FakeNode {
 LOGOS_TEST(start_inits_the_node_with_the_loaded_configuration) {
     FakeNode fake;
 
-    const std::string error = startStorageNode(fake.node());
+    const std::string error = fake.start();
 
     LOGOS_ASSERT_TRUE(error.empty());
     LOGOS_ASSERT_EQ(fake.initConfig, fake.config);
@@ -65,7 +76,7 @@ LOGOS_TEST(start_reports_a_configuration_that_could_not_be_loaded) {
     FakeNode fake;
     fake.configError = "Invalid configuration: expected a JSON object.";
 
-    const std::string error = startStorageNode(fake.node());
+    const std::string error = fake.start();
 
     LOGOS_ASSERT_EQ(error, fake.configError);
     LOGOS_ASSERT_FALSE(fake.initCalled);
@@ -77,7 +88,7 @@ LOGOS_TEST(start_starts_the_node_another_consumer_created) {
     FakeNode fake;
     fake.initAccepted = false;
 
-    const std::string error = startStorageNode(fake.node());
+    const std::string error = fake.start();
 
     LOGOS_ASSERT_TRUE(error.empty());
     LOGOS_ASSERT_TRUE(fake.startCalled);
@@ -87,7 +98,7 @@ LOGOS_TEST(start_leaves_a_running_node_alone) {
     FakeNode fake;
     fake.nodeRunning = true;
 
-    const std::string error = startStorageNode(fake.node());
+    const std::string error = fake.start();
 
     LOGOS_ASSERT_TRUE(error.empty());
     LOGOS_ASSERT_FALSE(fake.initCalled);
@@ -98,7 +109,7 @@ LOGOS_TEST(start_reports_a_refused_start) {
     FakeNode fake;
     fake.startAccepted = false;
 
-    const std::string error = startStorageNode(fake.node());
+    const std::string error = fake.start();
 
     LOGOS_ASSERT_EQ(error, std::string("the storage module refused the start command"));
 }
@@ -110,7 +121,7 @@ LOGOS_TEST(start_accepts_a_refusal_from_a_node_that_came_up_meanwhile) {
     fake.startAccepted = false;
     fake.runningAfterStart = true;
 
-    const std::string error = startStorageNode(fake.node());
+    const std::string error = fake.start();
 
     LOGOS_ASSERT_TRUE(error.empty());
 }

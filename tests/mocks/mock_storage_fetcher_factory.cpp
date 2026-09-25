@@ -9,10 +9,10 @@ std::function<void()> fireStorageReady;
 StorageNode fakeStorageNode = []() {
     StorageNode node;
 
-    node.isRunning = []() { return false; };
-    node.loadConfig = [](std::string&) { return std::string("{}"); };
-    node.init = [](const std::string&) { return true; };
-    node.start = []() { return true; };
+    node.isRunning = [](std::function<void(bool)> done) { done(false); };
+    node.loadConfig = [](std::function<void(const std::string&, const std::string&)> done) { done("{}", ""); };
+    node.init = [](const std::string&, std::function<void(bool)> done) { done(true); };
+    node.start = [](std::function<void(bool)> done) { done(true); };
 
     return node;
 }();

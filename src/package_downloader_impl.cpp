@@ -21,7 +21,6 @@
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <thread>
 #include <utility>   // std::move
 #include <vector>
 
@@ -169,46 +168,42 @@ void PackageDownloaderImpl::onContextReady() {
         m_lib = replacement;
     }
 
-    // The callbacks run on the main thread, and startStorage makes blocking
-    // calls into storage_module.
     m_cancelWatchSubscription = watchStorageReady(modules(), [this]() {
-        // Counted before the thread starts: aboutToUnload() waits for it.
-        auto call = std::make_shared<PendingLibCall>(*this);
-
-        std::thread([this, call]() {
-            startStorage();
-        }).detach();
+        startStorage();
     });
 }
 
 void PackageDownloaderImpl::startStorage() {
-    auto storageNode = makeStorageNode(modules());
-    const std::string error = startStorageNode(storageNode);
+    // Kept until the last reply: aboutToUnload() waits for it.
+    auto call = std::make_shared<PendingLibCall>(*this);
 
-    if (!error.empty()) {
-        fprintf(stderr, "PackageDownloaderImpl::startStorage: %s\n", error.c_str());
-    }
+    auto node = makeStorageNode(modules());
+    startStorageNode(node, [this, call](const std::string& error) {
+        if (!error.empty()) {
+            fprintf(stderr, "PackageDownloaderImpl::startStorage: %s\n", error.c_str());
+        }
 
-    {
+        {
+            std::lock_guard<std::mutex> lock(m_storageMutex);
+
+            if (m_storageFetcher) {
+                return;
+            }
+        }
+
+        auto fetcher = makeStorageFetcher(modules());
+
         std::lock_guard<std::mutex> lock(m_storageMutex);
 
-        if (m_storageFetcher) {
-            return;
+        if (!m_storageFetcher) {
+            m_storageFetcher = std::move(fetcher);
+            m_lib->setStorageFetcher(m_storageFetcher);
+
+            if (m_storageStopped && m_storageFetcher) {
+                m_storageFetcher->cancelPendingDownloads();
+            }
         }
-    }
-
-    auto fetcher = makeStorageFetcher(modules());
-
-    std::lock_guard<std::mutex> lock(m_storageMutex);
-
-    if (!m_storageFetcher) {
-        m_storageFetcher = std::move(fetcher);
-        m_lib->setStorageFetcher(m_storageFetcher);
-
-        if (m_storageStopped && m_storageFetcher) {
-            m_storageFetcher->cancelPendingDownloads();
-        }
-    }
+    });
 }
 
 LogosShutdown PackageDownloaderImpl::aboutToUnload() {
