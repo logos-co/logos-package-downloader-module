@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace lgpd {
@@ -29,6 +30,11 @@ struct FetchResult {
     bool ok = false;
     std::string error;
 };
+
+enum class DownloadSource { Any, Logos, Http };
+
+std::string downloadSourceName(DownloadSource source);
+std::optional<DownloadSource> parseDownloadSource(const std::string& name);
 
 class Fetcher {
 public:
@@ -51,6 +57,12 @@ public:
     std::string addRepository(const std::string& url);
     std::string removeRepository(const std::string& url);
     std::string setEnabled(const std::string& url, bool enabled);
+
+    DownloadSource downloadSource() const;
+    std::string setDownloadSource(DownloadSource source);
+
+private:
+    DownloadSource downloadSource_ = DownloadSource::Any;
 };
 
 class PackageDownloaderLib {

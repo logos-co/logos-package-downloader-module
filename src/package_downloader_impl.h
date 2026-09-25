@@ -48,6 +48,14 @@ public:
     LogosList getCatalog();
     LogosList getCatalogForRepo(const std::string& repoUrlOrName);
 
+    // Download source: the transports downloads may use. "any" (Logos
+    // Storage, then HTTP), "logos" (Logos Storage only) or "http" (HTTP only),
+    // persisted with the repositories. getCatalog() marks each version the
+    // source cannot serve (`sourceAvailable: false`, `sourceUnavailableReason`),
+    // and downloads never pick one.
+    std::string getDownloadSource();
+    LogosMap  setDownloadSource(const std::string& source);
+
     // Pinned download — picks an exact (repository, version, rootHash)
     // candidate from the merged catalog. Empty args mean "any matching".
     LogosMap  downloadPinned(const std::string& repoUrlOrName, const std::string& packageName, const std::string& version, const std::string& rootHash);
@@ -74,8 +82,8 @@ public:
     LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson);
 
     // catalogChanged fires on success from addRepository, removeRepository,
-    // and setRepositoryEnabled — Subscribers re-fetch via
-    // listRepositories() / getCatalog().
+    // setRepositoryEnabled, and setDownloadSource when the source changes —
+    // Subscribers re-fetch via listRepositories() / getCatalog().
     //
     // downloadProgress fires per package while its bytes are on the wire, in
     // install order, already rate-limited by the lib. `total` is 0 when

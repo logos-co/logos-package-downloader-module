@@ -489,3 +489,57 @@ LOGOS_TEST(a_call_in_flight_keeps_the_lib_past_the_destructor) {
     LOGOS_ASSERT_FALSE(freedUnderTheCall);
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("PackageDownloaderLib_dtor"));
 }
+
+// ── Download source ──────────────────────────────────────────────────────
+
+LOGOS_TEST(setDownloadSource_persists_the_source_and_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.setDownloadSource("logos");
+
+    LOGOS_ASSERT_TRUE(r["success"].get<bool>());
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("setDownloadSource"));
+    LOGOS_ASSERT_EQ(impl.getDownloadSource(), std::string("logos"));
+    LOGOS_ASSERT_TRUE(events.has("catalogChanged"));
+}
+
+LOGOS_TEST(setDownloadSource_refuses_an_unknown_source) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.setDownloadSource("ftp");
+
+    LOGOS_ASSERT_FALSE(r["success"].get<bool>());
+    LOGOS_ASSERT_CONTAINS(r["error"].get<std::string>(), std::string("any, logos or http"));
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("setDownloadSource"));
+    LOGOS_ASSERT_EQ(impl.getDownloadSource(), std::string("any"));
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
+// Nothing to refresh: the catalog's availability marks did not move.
+LOGOS_TEST(setDownloadSource_to_the_current_source_emits_nothing) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.setDownloadSource("any");
+
+    LOGOS_ASSERT_TRUE(r["success"].get<bool>());
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
+LOGOS_TEST(setDownloadSource_surfaces_a_save_error) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("setDownloadSource").returns("cannot write config file: /x");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.setDownloadSource("http");
+
+    LOGOS_ASSERT_FALSE(r["success"].get<bool>());
+    LOGOS_ASSERT_EQ(r["error"].get<std::string>(), std::string("cannot write config file: /x"));
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
