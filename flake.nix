@@ -8,7 +8,11 @@
     logos-module-builder.inputs.logos-standalone-app.follows = "";
     logos-package-downloader.url = "github:logos-co/logos-package-downloader";
     storage_module.url = "github:logos-co/logos-storage-module/v3.0.0-rc1";
+    # Consumed for their LIDL contracts only: without these, each brings its
+    # own builder subtree into the lock.
+    storage_module.inputs.logos-module-builder.follows = "logos-module-builder";
     modules_state.url = "github:logos-co/logos-modules-state-module";
+    modules_state.inputs.logos-module-builder.follows = "logos-module-builder";
   };
 
   outputs = inputs@{ logos-module-builder, ... }:
