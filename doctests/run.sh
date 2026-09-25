@@ -13,7 +13,7 @@
 #
 # The runner is the shared `doctest` CLI
 # (https://github.com/logos-co/logos-doctest), invoked directly via its flake.
-# Each spec runs into ./outputs/ via --output-dir; `doctest generate` renders the
+# Each spec runs into ./outputs/<spec>/ via --output-dir; `doctest generate` renders the
 # .md; `doctest clean` then strips build artifacts, keeping only the .md.
 #
 # To run against a local logos-doctest checkout instead of the published flake,
@@ -56,8 +56,20 @@ fi
 rm -rf "${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR}"
 
-# Run each spec into ./outputs/ separately. --output-dir is single-spec, so we
-# pass it once per spec.
+cleanup() {
+  for dir in "${OUTPUT_DIR}"/*/; do
+    "${dir}logosctl/bin/logosctl" --config-dir "${dir}session" stop > /dev/null 2>&1 || true
+    for pid in "${dir}"*.pid; do
+      kill "$(cat "${pid}")" 2> /dev/null || true
+    done
+  done
+}
+trap cleanup EXIT
+
+status=0
+
+# Run each spec into its own ./outputs/<spec>/, so they share no session or
+# home. A failed spec does not stop the next one.
 for spec in *.test.yaml; do
   name="$(basename "${spec%.test.yaml}")"
   echo "==> Running ${spec} into ${OUTPUT_DIR}/"
@@ -67,7 +79,7 @@ for spec in *.test.yaml; do
     --verbose \
     --continue-on-fail \
     ${RELEASE_FOR[@]+"${RELEASE_FOR[@]}"} \
-    --output-dir "${OUTPUT_DIR}/"
+    --output-dir "${OUTPUT_DIR}/${name}/" || status=1
 
   echo "==> Generating ${OUTPUT_DIR}/${name}.md"
   "${DOCTEST[@]}" generate "${spec}" \
@@ -79,3 +91,4 @@ echo "==> Cleaning build artifacts from ${OUTPUT_DIR}/ (keeps .md)"
 "${DOCTEST[@]}" clean "${OUTPUT_DIR}" --verbose
 
 echo "==> Done. Rendered docs are in ${OUTPUT_DIR}/"
+exit "${status}"
