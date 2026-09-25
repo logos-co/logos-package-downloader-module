@@ -156,7 +156,7 @@ dependencies; it links the `package_downloader` external library instead.
 
 The single bridge class. Inherits `LogosModuleContext` (the opt-in SDK mixin that exposes
 `modulePath()` / `instanceId()` / `instancePersistencePath()` and the `onContextReady()`
-hook). Holds one `lgpd::PackageDownloaderLib* m_lib` and forwards method calls into the
+hook). Holds one shared `lgpd::PackageDownloaderLib` and forwards method calls into the
 library / its `RepositoryRegistry`, translating between JSON strings and `LogosList` /
 `LogosMap`.
 
@@ -173,10 +173,10 @@ single-line declaration in the header into a provider method plus an auto-genera
 | `addRepository` | `LogosMap addRepository(const std::string& url)` | Add a user repository by its `logos-repo.json` URL. Forwards to `registry().addRepository(url)`. Returns `{success, error?}`. Emits `catalogChanged` on success |
 | `removeRepository` | `LogosMap removeRepository(const std::string& url)` | Remove a user repository (the built-in default cannot be removed). Forwards to `registry().removeRepository(url)`. Returns `{success, error?}`. Emits `catalogChanged` on success |
 | `setRepositoryEnabled` | `LogosMap setRepositoryEnabled(const std::string& url, bool enabled)` | Enable/disable a repository. Forwards to `registry().setEnabled(url, enabled)`. Returns `{success, error?}`. Emits `catalogChanged` on success |
-| `listRepositories` | `LogosList listRepositories()` | Configured repos. Each entry: `{url, enabled, isDefault, name, displayName, description, homepage, indexUrl, trustedSignerDids[], resolveError}`. Parses `m_lib->listRepositoriesJson()` |
-| `refreshCatalog` | `LogosMap refreshCatalog()` | Re-fetch every enabled repo's `logos-repo.json` + `index.json`. Returns `{success, error?}` — error string surfaced from `m_lib->refreshCatalogs()` |
-| `getCatalog` | `LogosList getCatalog()` | Merged catalog across all enabled repos. Each entry: `{repositoryUrl, repositoryName, repositoryDisplayName, name, type, category, author, description, icon, versions[]}` (versions newest-first). Parses `m_lib->getCatalogJson()` |
-| `getCatalogForRepo` | `LogosList getCatalogForRepo(const std::string& repoUrlOrName)` | Same shape as `getCatalog`, scoped to one repository (identified by URL or name). Parses `m_lib->getCatalogForRepoJson(...)` |
+| `listRepositories` | `LogosList listRepositories()` | Configured repos. Each entry: `{url, enabled, isDefault, name, displayName, description, homepage, indexUrl, trustedSignerDids[], resolveError}`. Parses `lib->listRepositoriesJson()` |
+| `refreshCatalog` | `LogosMap refreshCatalog()` | Re-fetch every enabled repo's `logos-repo.json` + `index.json`. Returns `{success, error?}` — error string surfaced from `lib->refreshCatalogs()` |
+| `getCatalog` | `LogosList getCatalog()` | Merged catalog across all enabled repos. Each entry: `{repositoryUrl, repositoryName, repositoryDisplayName, name, type, category, author, description, icon, versions[]}` (versions newest-first). Parses `lib->getCatalogJson()` |
+| `getCatalogForRepo` | `LogosList getCatalogForRepo(const std::string& repoUrlOrName)` | Same shape as `getCatalog`, scoped to one repository (identified by URL or name). Parses `lib->getCatalogForRepoJson(...)` |
 | `downloadPinned` | `LogosMap downloadPinned(const std::string& repoUrlOrName, const std::string& packageName, const std::string& version, const std::string& rootHash)` | Download one exact build. Empty args mean "any": empty repo → any enabled repo, empty version → newest, empty rootHash → don't disambiguate. Returns `{name, path, source, error?}` (plus `version` / `rootHash` / `repositoryUrl` when those args were supplied). `source` is the HTTPS URL, or `logos:<network>:<cid>` when the storage node served the package |
 | `downloadResolvedDependencies` | `LogosList downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson)` | Resolve a manifest-style dep list (`["name", ...]` or `[{name,version?,signer?}, ...]`) and download every resolved entry in install order. Each result row: `{name, path, error?}`. Exception-fenced to per-package error rows |
 | `resolveDependencies` | `LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson)` | **Download-free preview.** Resolves the dep list into install-ordered entries `{name, version, rootHash, repositoryUrl, url, topLevel}`. `installedPackagesJson` (optional `[{name,version,rootHash}]`) lets the resolver short-circuit transitive deps already on disk; empty string resolves all transitives from the catalog |
@@ -211,17 +211,23 @@ single-line declaration in the header into a provider method plus an auto-genera
   back; a second start is refused by `storage_module` itself. The storage fetcher is built
   once and installed in the library in `onContextReady()`, before any call is served:
   `setStorageFetcher` takes the library's lock, which a first catalog fetch holds across
-  the network. The fetcher checks the storage module and the node on every download.
+  the network. It subscribes to `storage_module`'s events on the first `ready`, so a host
+  without the module keeps no pending subscriptions. The fetcher checks the storage module
+  and the node on every download.
   A download never starts the node: it is shared, and the storage UI may have stopped it
   on purpose. A node that is down answers an empty network, and the library falls back
   to HTTPS.
-- **Persistence path anchoring.** The constructor seeds `m_lib` with an XDG-style default
-  config path (`$XDG_CONFIG_HOME/logos/package-downloader/repositories.json`, falling back
-  to `$HOME/.config/...` or a temp dir) so callers that bypass the framework (the `lgpd`
-  CLI, unit tests) still get a working downloader. When a host drives the module,
-  `onContextReady()` re-points `m_lib` at `<instancePersistencePath>/repositories.json`.
-  The replacement is constructed before the old instance is freed, so a throwing ctor
-  leaves `m_lib` valid rather than dangling.
+- **Unload.** `aboutToUnload()` refuses new calls, stops every event, fails the storage
+  waits and stops a node start in progress, then returns `Asynchronous` while calls are in
+  flight. A failed storage wait still falls back to HTTPS, which the library cannot cancel
+  yet, so a download can outlive the host's 3 s wait; after it the host tears the event
+  path down, which is why such a call emits nothing. The destructor runs at process exit,
+  maybe under such a call: each call holds its own share of the library.
+- **Persistence path anchoring.** The constructor seeds the library with an XDG-style
+  default config path (`$XDG_CONFIG_HOME/logos/package-downloader/repositories.json`,
+  falling back to `$HOME/.config/...` or a temp dir) so callers that bypass the framework
+  (the `lgpd` CLI, unit tests) still get a working downloader. When a host drives the
+  module, `onContextReady()` re-points it at `<instancePersistencePath>/repositories.json`.
 
 ## Building and Testing
 

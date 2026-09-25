@@ -7,6 +7,7 @@
 #include <sstream>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include <logos_json.h>
 
@@ -37,25 +38,52 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_stallTimeout(stallTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
-    m_unsubscribeDone = m_onStorageDownloadDone([this](const std::string& payload) {
-        onDownloadDone(payload);
-    });
-
-    m_unsubscribeProgress = m_onStorageDownloadProgress([this](const std::string& payload) {
-        onDownloadProgress(payload);
-    });
-
-    m_unsubscribeManifest = m_onStorageDownloadManifestDone([this](const std::string& payload) {
-        onManifestDone(payload);
-    });
 }
 
 StorageFetcher::~StorageFetcher() {
-    for (const Unsubscribe& unsubscribe : {m_unsubscribeDone, m_unsubscribeProgress, m_unsubscribeManifest}) {
+    std::vector<Unsubscribe> unsubscribes;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        unsubscribes = {m_unsubscribeDone, m_unsubscribeProgress, m_unsubscribeManifest};
+    }
+
+    // Outside the lock: a cancel waits for a callback in flight, which takes it.
+    for (const Unsubscribe& unsubscribe : unsubscribes) {
         if (unsubscribe) {
             unsubscribe();
         }
     }
+}
+
+void StorageFetcher::subscribe() {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (m_subscribed) {
+            return;
+        }
+
+        m_subscribed = true;
+    }
+
+    // Outside the lock: an event can arrive while subscribing, and its callback takes it.
+    Unsubscribe done = m_onStorageDownloadDone([this](const std::string& payload) {
+        onDownloadDone(payload);
+    });
+
+    Unsubscribe progress = m_onStorageDownloadProgress([this](const std::string& payload) {
+        onDownloadProgress(payload);
+    });
+
+    Unsubscribe manifest = m_onStorageDownloadManifestDone([this](const std::string& payload) {
+        onManifestDone(payload);
+    });
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    m_unsubscribeDone = std::move(done);
+    m_unsubscribeProgress = std::move(progress);
+    m_unsubscribeManifest = std::move(manifest);
 }
 
 void StorageFetcher::cancelPendingDownloads() {
@@ -76,13 +104,13 @@ void StorageFetcher::cancelPendingDownloads() {
 }
 
 lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
-    if (!m_unsubscribeManifest) {
-        return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
-    }
-
     std::future<lgpd::FetchResult> done;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (!m_unsubscribeManifest) {
+            return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
+        }
 
         if (m_unloading) {
             return unloading;
@@ -174,12 +202,12 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
         return {false, "the storage node is not running"};
     }
 
-    if (!m_unsubscribeDone) {
-        return {false, "not subscribed to storage_module's storageDownloadDone event"};
-    }
-
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (!m_unsubscribeDone) {
+            return {false, "not subscribed to storage_module's storageDownloadDone event"};
+        }
 
         if (m_pending.count(cid) > 0) {
             return {false, "a download of " + cid + " is already in progress"};

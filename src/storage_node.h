@@ -13,6 +13,10 @@ struct StorageNode {
 
     std::function<void(const std::string& config, std::function<void(bool accepted)>)> init;
     std::function<void(std::function<void(bool accepted)>)> start;
+
+    // Optional: true once the caller is unloading. The start then makes no
+    // further call to storage_module.
+    std::function<bool()> stopped;
 };
 
 // Bring the node up: load the configuration, init and start. `done` gets

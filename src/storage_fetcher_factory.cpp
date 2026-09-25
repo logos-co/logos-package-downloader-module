@@ -13,7 +13,7 @@ namespace {
 
 constexpr int64_t chunkSize = 65536;
 
-// Packages do not go over Mix unless an option asks for it.
+// Packages never go over Mix.
 constexpr bool isPrivate = false;
 
 // The node neither announces nor serves the packages it downloaded.
