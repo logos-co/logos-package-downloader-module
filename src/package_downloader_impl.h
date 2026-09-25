@@ -109,15 +109,10 @@ protected:
     LogosShutdown aboutToUnload() override;
 
 private:
-    // Counts a call that uses m_lib, for aboutToUnload().
-    class PendingLibCall {
-    public:
-        explicit PendingLibCall(PackageDownloaderImpl& impl);
-        ~PendingLibCall();
-
-    private:
-        PackageDownloaderImpl& m_impl;
-    };
+    // Counts a call that uses m_lib, for aboutToUnload(). Defined in the .cpp:
+    // the codegen reads this header line by line and would take its members
+    // for module methods.
+    class PendingLibCall;
 
     void startStorage();
 

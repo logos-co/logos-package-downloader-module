@@ -19,7 +19,9 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <thread>
 #include <utility>   // std::move
 #include <vector>
 
@@ -109,6 +111,15 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
 
 } // namespace
 
+class PackageDownloaderImpl::PendingLibCall {
+public:
+    explicit PendingLibCall(PackageDownloaderImpl& impl);
+    ~PendingLibCall();
+
+private:
+    PackageDownloaderImpl& m_impl;
+};
+
 PackageDownloaderImpl::PackageDownloaderImpl()
     : m_lib(new lgpd::PackageDownloaderLib(defaultConfigPath()))
 {
@@ -158,8 +169,15 @@ void PackageDownloaderImpl::onContextReady() {
         m_lib = replacement;
     }
 
+    // The callbacks run on the main thread, and startStorage makes blocking
+    // calls into storage_module.
     m_cancelWatchSubscription = watchStorageReady(modules(), [this]() {
-        startStorage();
+        // Counted before the thread starts: aboutToUnload() waits for it.
+        auto call = std::make_shared<PendingLibCall>(*this);
+
+        std::thread([this, call]() {
+            startStorage();
+        }).detach();
     });
 }
 
@@ -194,7 +212,7 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
         std::lock_guard<std::mutex> lock(m_storageMutex);
 
         if (m_storageFetcher) {
-            m_storageFetcher->cancelPendingLibCalls();
+            m_storageFetcher->cancelPendingDownloads();
         }
     }
 

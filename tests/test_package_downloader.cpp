@@ -16,6 +16,7 @@
 #include "package_downloader_impl.h"
 #include "mocks/mock_storage_fetcher_factory.h"
 
+#include <future>
 #include <string>
 
 // ── Repository management ────────────────────────────────────────────────
@@ -369,6 +370,16 @@ void makeContextReady(PackageDownloaderImpl& impl) {
     impl._logosCoreSetContext_("", "", "");
 }
 
+// The storage start does not block: wait for its thread, as the host does.
+void waitForStorageStart(PackageDownloaderImpl& impl) {
+    std::promise<void> finished;
+    impl._logosCoreSetUnloadFinished_([&finished]() { finished.set_value(); });
+
+    if (impl._logosCoreAboutToUnload_() == LogosShutdown::Asynchronous) {
+        finished.get_future().wait();
+    }
+}
+
 StorageNode nodeThatStarts(bool startAccepted) {
     StorageNode node;
 
@@ -389,6 +400,7 @@ LOGOS_TEST(storage_ready_installs_the_storage_fetcher) {
     makeContextReady(impl);
 
     fireStorageReady();
+    waitForStorageStart(impl);
 
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
 }
@@ -402,6 +414,7 @@ LOGOS_TEST(storage_ready_installs_the_storage_fetcher_when_the_start_is_refused)
     makeContextReady(impl);
 
     fireStorageReady();
+    waitForStorageStart(impl);
 
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
 }
