@@ -17,7 +17,7 @@ StorageNode fakeStorageNode = []() {
     return node;
 }();
 
-std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules&) {
+std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules&) {
     return nullptr;
 }
 

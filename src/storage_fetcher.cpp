@@ -31,21 +31,46 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_downloadTimeout(downloadTimeout)
     , m_manifestTimeout(manifestTimeout)
 {
-    m_subscribed = m_onStorageDownloadDone([this](const std::string& payload) {
+    m_unsubscribeDone = m_onStorageDownloadDone([this](const std::string& payload) {
         onDownloadDone(payload);
     });
 
-    m_onStorageDownloadProgress([this](const std::string& payload) {
+    m_unsubscribeProgress = m_onStorageDownloadProgress([this](const std::string& payload) {
         onDownloadProgress(payload);
     });
 
-    m_manifestSubscribed = m_onStorageDownloadManifestDone([this](const std::string& payload) {
+    m_unsubscribeManifest = m_onStorageDownloadManifestDone([this](const std::string& payload) {
         onManifestDone(payload);
     });
 }
 
+StorageFetcher::~StorageFetcher() {
+    for (const Unsubscribe& unsubscribe : {m_unsubscribeDone, m_unsubscribeProgress, m_unsubscribeManifest}) {
+        if (unsubscribe) {
+            unsubscribe();
+        }
+    }
+}
+
+void StorageFetcher::cancelPendingDownloads() {
+    const lgpd::FetchResult unloading{false, "the module is unloading"};
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    for (auto& [cid, pending] : m_pending) {
+        pending.result.set_value(unloading);
+    }
+
+    for (auto& [cid, manifest] : m_pendingManifests) {
+        manifest.set_value(unloading);
+    }
+
+    m_pending.clear();
+    m_pendingManifests.clear();
+}
+
 lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
-    if (!m_manifestSubscribed) {
+    if (!m_unsubscribeManifest) {
         return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
     }
 
@@ -139,7 +164,7 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
         return {false, "the storage node is not running"};
     }
 
-    if (!m_subscribed) {
+    if (!m_unsubscribeDone) {
         return {false, "not subscribed to storage_module's storageDownloadDone event"};
     }
 

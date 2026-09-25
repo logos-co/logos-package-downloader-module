@@ -18,11 +18,12 @@ class StorageFetcher : public lgpd::Fetcher {
 public:
     // Extract Storage Module function types to make tests easier.
     using DownloadToUrl = std::function<std::string(const std::string& cid, const std::string& filePath)>;
-    using OnStorageDownloadDone = std::function<bool(std::function<void(const std::string& payload)>)>;
-    using OnStorageDownloadProgress = std::function<bool(std::function<void(const std::string& payload)>)>;
+    using Unsubscribe = std::function<void()>;
+    using OnStorageDownloadDone = std::function<Unsubscribe(std::function<void(const std::string& payload)>)>;
+    using OnStorageDownloadProgress = std::function<Unsubscribe(std::function<void(const std::string& payload)>)>;
     using DownloadCancel = std::function<std::string(const std::string& cid)>;
     using DownloadManifest = std::function<std::string(const std::string& cid)>;
-    using OnStorageDownloadManifestDone = std::function<bool(std::function<void(const std::string& payload)>)>;
+    using OnStorageDownloadManifestDone = std::function<Unsubscribe(std::function<void(const std::string& payload)>)>;
     using NodeRunning = std::function<bool()>;
     using Network = std::function<std::string()>;
 
@@ -43,7 +44,12 @@ public:
         std::chrono::milliseconds downloadTimeout = std::chrono::minutes(10),
         std::chrono::milliseconds manifestTimeout = std::chrono::minutes(5));
 
+    ~StorageFetcher() override;
+
+    void cancelPendingDownloads();
+
     bool canHandle(const std::string& url) const override;
+
     lgpd::FetchResult get(const std::string& cid, std::string& out) override;
     lgpd::FetchResult getToFile(const std::string& url, const std::string& path) override;
     lgpd::FetchResult getToFile(const std::string& url, const std::string& path,
@@ -75,8 +81,9 @@ private:
     std::chrono::milliseconds m_downloadTimeout;
     std::chrono::milliseconds m_manifestTimeout;
 
-    bool m_subscribed = false;
-    bool m_manifestSubscribed = false;
+    Unsubscribe m_unsubscribeDone;
+    Unsubscribe m_unsubscribeProgress;
+    Unsubscribe m_unsubscribeManifest;
 
     std::mutex m_mutex;
     std::map<std::string, Pending> m_pending;

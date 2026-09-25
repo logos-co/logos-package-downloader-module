@@ -9,7 +9,8 @@
 #include <logos_json.h>
 #include <logos_module_context.h>
 
-namespace lgpd { class PackageDownloaderLib; class Fetcher; }
+namespace lgpd { class PackageDownloaderLib; }
+class StorageFetcher;
 
 /**
  * Bridges the lgpd C++ library to the Logos module ABI.
@@ -105,17 +106,39 @@ protected:
     // framework (lgpd CLI, unit tests) still see a working lib.
     void onContextReady() override;
 
+    LogosShutdown aboutToUnload() override;
+
 private:
+    // Counts a call that uses m_lib, for aboutToUnload().
+    class PendingLibCall {
+    public:
+        explicit PendingLibCall(PackageDownloaderImpl& impl);
+        ~PendingLibCall();
+
+    private:
+        PackageDownloaderImpl& m_impl;
+    };
+
     void startStorage();
 
     lgpd::PackageDownloaderLib* m_lib;
 
     // Save the storage fetcher so it doesn't need
     // to unsubscribe and resubscribe to storage_module events.
-    std::shared_ptr<lgpd::Fetcher> m_storageFetcher;
+    std::shared_ptr<StorageFetcher> m_storageFetcher;
 
     std::function<void()> m_cancelWatchSubscription;
 
     // Guards m_storageFetcher.
     std::mutex m_storageMutex;
+
+    // Guards m_pendingLibCalls and m_unloading.
+    std::mutex m_callsMutex;
+
+    // Calls still using m_lib: aboutToUnload() waits for it to reach 0.
+    int m_pendingLibCalls = 0;
+
+    // Set when aboutToUnload() returned Asynchronous: the last call to end
+    // then calls unloadFinished().
+    bool m_unloading = false;
 };

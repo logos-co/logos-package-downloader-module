@@ -13,9 +13,19 @@ namespace {
 
 constexpr int64_t chunkSize = 65536;
 
+StorageFetcher::Unsubscribe unsubscribeOf(const logos::SubHandle& handle) {
+    if (!handle) {
+        return {};
+    }
+
+    return [handle]() {
+        handle.cancel();
+    };
 }
 
-std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
+}
+
+std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules) {
     StorageFetcher::DownloadToUrl downloadToUrl =
         [&modules](const std::string& cid, const std::string& path) {
             const StdLogosResult r =
@@ -26,12 +36,12 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
 
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&modules](std::function<void(const std::string&)> callback) {
-            return modules.storage_module.onStorageDownloadDone(std::move(callback));
+            return unsubscribeOf(modules.storage_module.onStorageDownloadDone(std::move(callback)));
         };
 
     StorageFetcher::OnStorageDownloadProgress onStorageDownloadProgress =
         [&modules](std::function<void(const std::string&)> callback) {
-            return modules.storage_module.onStorageDownloadProgress(std::move(callback));
+            return unsubscribeOf(modules.storage_module.onStorageDownloadProgress(std::move(callback)));
         };
 
     StorageFetcher::DownloadCancel downloadCancel =
@@ -50,7 +60,7 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
 
     StorageFetcher::OnStorageDownloadManifestDone onStorageDownloadManifestDone =
         [&modules](std::function<void(const std::string&)> callback) {
-            return modules.storage_module.onStorageDownloadManifestDone(std::move(callback));
+            return unsubscribeOf(modules.storage_module.onStorageDownloadManifestDone(std::move(callback)));
         };
 
     StorageFetcher::NodeRunning nodeRunning =
@@ -63,14 +73,10 @@ std::shared_ptr<lgpd::Fetcher> makeStorageFetcher(LogosModules& modules) {
             return makeNetwork(modules);
         };
 
-    // Use a shared_ptr to keep the fetcher alive because there is currently
-    // no way to unsubscribe events.
-    return std::shared_ptr<lgpd::Fetcher>(
-        new StorageFetcher(downloadToUrl, onStorageDownloadDone,
-                           onStorageDownloadProgress, downloadCancel,
-                           downloadManifest, onStorageDownloadManifestDone,
-                           nodeRunning, network),
-        [](lgpd::Fetcher*) {});
+    return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone,
+                                            onStorageDownloadProgress, downloadCancel,
+                                            downloadManifest, onStorageDownloadManifestDone,
+                                            nodeRunning, network);
 }
 
 std::string makeNetwork(LogosModules& modules) {

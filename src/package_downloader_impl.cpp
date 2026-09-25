@@ -122,13 +122,12 @@ PackageDownloaderImpl::PackageDownloaderImpl()
     // XDG config file once in the lib's constructor.
 }
 
-// m_lib is not deleted: the module is `concurrency:"multi"`, so a download
-// dispatched on another thread can still be inside it while we are torn down.
 PackageDownloaderImpl::~PackageDownloaderImpl() {
     if (m_cancelWatchSubscription) {
         m_cancelWatchSubscription();
     }
 
+    delete m_lib;
 }
 
 void PackageDownloaderImpl::onContextReady() {
@@ -190,39 +189,88 @@ void PackageDownloaderImpl::startStorage() {
     }
 }
 
+LogosShutdown PackageDownloaderImpl::aboutToUnload() {
+    {
+        std::lock_guard<std::mutex> lock(m_storageMutex);
+
+        if (m_storageFetcher) {
+            m_storageFetcher->cancelPendingLibCalls();
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(m_callsMutex);
+
+    if (m_pendingLibCalls == 0) {
+        return LogosShutdown::Synchronous;
+    }
+
+    m_unloading = true;
+
+    return LogosShutdown::Asynchronous;
+}
+
+PackageDownloaderImpl::PendingLibCall::PendingLibCall(PackageDownloaderImpl& impl)
+    : m_impl(impl)
+{
+    std::lock_guard<std::mutex> lock(m_impl.m_callsMutex);
+
+    ++m_impl.m_pendingLibCalls;
+}
+
+PackageDownloaderImpl::PendingLibCall::~PendingLibCall() {
+    bool lastBeforeUnload = false;
+    {
+        std::lock_guard<std::mutex> lock(m_impl.m_callsMutex);
+
+        --m_impl.m_pendingLibCalls;
+        lastBeforeUnload = m_impl.m_unloading && m_impl.m_pendingLibCalls == 0;
+    }
+
+    if (lastBeforeUnload) {
+        m_impl.unloadFinished();
+    }
+}
+
 // ── Multi-repo API ─────────────────────────────────────────────────────────
 
 LogosMap PackageDownloaderImpl::addRepository(const std::string& url) {
+    PendingLibCall call(*this);
     const std::string err = m_lib->registry().addRepository(url);
     if (err.empty()) catalogChanged();
     return makeResult(err);
 }
 
 LogosMap PackageDownloaderImpl::removeRepository(const std::string& url) {
+    PendingLibCall call(*this);
     const std::string err = m_lib->registry().removeRepository(url);
     if (err.empty()) catalogChanged();
     return makeResult(err);
 }
 
 LogosMap PackageDownloaderImpl::setRepositoryEnabled(const std::string& url, bool enabled) {
+    PendingLibCall call(*this);
     const std::string err = m_lib->registry().setEnabled(url, enabled);
     if (err.empty()) catalogChanged();
     return makeResult(err);
 }
 
 LogosList PackageDownloaderImpl::listRepositories() {
+    PendingLibCall call(*this);
     return LogosList::parse(m_lib->listRepositoriesJson());
 }
 
 LogosMap PackageDownloaderImpl::refreshCatalog() {
+    PendingLibCall call(*this);
     return makeResult(m_lib->refreshCatalogs());
 }
 
 LogosList PackageDownloaderImpl::getCatalog() {
+    PendingLibCall call(*this);
     return LogosList::parse(m_lib->getCatalogJson());
 }
 
 LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrName) {
+    PendingLibCall call(*this);
     return LogosList::parse(m_lib->getCatalogForRepoJson(repoUrlOrName));
 }
 
@@ -230,6 +278,7 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                                 const std::string& packageName,
                                                 const std::string& version,
                                                 const std::string& rootHash) {
+    PendingLibCall call(*this);
     LogosMap result = pinnedDownload(m_lib, repoUrlOrName, packageName, version, rootHash,
                                      [this](const std::string& name, std::uint64_t received,
                                             std::uint64_t total) {
@@ -245,6 +294,7 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
 }
 
 LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson) {
+    PendingLibCall call(*this);
     // Exception fence: the resolver/downloader can throw on malformed
     // catalog data; we convert any throw into per-package error rows
     // (below) so one bad entry never takes down the whole batch.
@@ -342,6 +392,7 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
 
 LogosList PackageDownloaderImpl::resolveDependencies(const std::string& dependenciesJson,
                                                     const std::string& installedPackagesJson) {
+    PendingLibCall call(*this);
     // Same exception fence + per-input attribution as
     // downloadResolvedDependencies — see comments there.
     LogosList results = LogosList::array();

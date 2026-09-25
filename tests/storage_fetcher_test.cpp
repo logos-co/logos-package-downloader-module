@@ -30,10 +30,10 @@ std::string buildProgressPayload(const std::string& cid, std::uint64_t bytes, st
 }
 
 const StorageFetcher::OnStorageDownloadDone unusedDone =
-    [](std::function<void(const std::string&)>) { return true; };
+    [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
 
 const StorageFetcher::OnStorageDownloadProgress unusedProgress =
-    [](std::function<void(const std::string&)>) { return true; };
+    [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
 
 const StorageFetcher::NodeRunning nodeRunning = []() { return true; };
 
@@ -54,7 +54,7 @@ struct Manifest {
     StorageFetcher::OnStorageDownloadManifestDone subscribe() {
         return [this](std::function<void(const std::string&)> callback) {
             fire = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
     }
 
@@ -91,7 +91,7 @@ LOGOS_TEST(getToFile_succeeds) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     Manifest manifest;
@@ -121,7 +121,7 @@ LOGOS_TEST(getToFile_returns_the_error_from_the_download_event) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     Manifest manifest;
@@ -161,7 +161,7 @@ LOGOS_TEST(getToFile_downloads_nothing_when_the_subscription_failed) {
 
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [](std::function<void(const std::string&)>) {
-            return false;
+            return StorageFetcher::Unsubscribe();
         };
 
     Manifest manifest;
@@ -195,7 +195,7 @@ LOGOS_TEST(getToFile_refuses_a_cid_already_in_progress) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     Manifest manifest;
@@ -249,6 +249,61 @@ LOGOS_TEST(getToFile_is_cancelled_on_timeout) {
     LOGOS_ASSERT_EQ(cancelledCid, std::string("cid-1"));
 }
 
+LOGOS_TEST(cancelPendingDownloads_fails_a_download_in_progress) {
+    StorageFetcher* fetcherPtr = nullptr;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            fetcherPtr->cancelPendingDownloads();
+            return std::string();
+        };
+
+    Manifest manifest;
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+    fetcherPtr = &fetcher;
+
+    lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.error.find("unloading") != std::string::npos);
+}
+
+LOGOS_TEST(cancelPendingDownloads_fails_a_manifest_in_progress) {
+    StorageFetcher* fetcherPtr = nullptr;
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            fetcherPtr->cancelPendingDownloads();
+            return std::string();
+        };
+
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone, nodeRunning, network, shortTimeout, shortTimeout);
+    fetcherPtr = &fetcher;
+
+    lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.error.find("unloading") != std::string::npos);
+}
+
+LOGOS_TEST(destroying_the_fetcher_cancels_its_subscriptions) {
+    int cancelled = 0;
+
+    auto subscribe = [&](std::function<void(const std::string&)>) {
+        return StorageFetcher::Unsubscribe([&]() { ++cancelled; });
+    };
+
+    {
+        StorageFetcher fetcher(nullptr, subscribe, subscribe, unusedCancel,
+                               nullptr, subscribe, nodeRunning, network, shortTimeout, shortTimeout);
+    }
+
+    LOGOS_ASSERT_EQ(cancelled, 3);
+}
+
 LOGOS_TEST(getToFile_can_retry_a_cid_after_a_timeout) {
     int downloads = 0;
 
@@ -278,7 +333,7 @@ LOGOS_TEST(getToFile_times_out_when_the_manifest_never_arrives) {
         };
 
     StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
-        [](std::function<void(const std::string&)>) { return true; };
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
 
     StorageFetcher::DownloadManifest downloadManifest =
         [](const std::string&) { return std::string(); };
@@ -310,13 +365,13 @@ LOGOS_TEST(getToFile_accumulates_the_progress_data_size) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     StorageFetcher::OnStorageDownloadProgress onStorageDownloadProgress =
         [&](std::function<void(const std::string&)> callback) {
             fireProgress = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     Manifest manifest;
@@ -355,13 +410,13 @@ LOGOS_TEST(getToFile_ignores_the_progress_of_another_session) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     StorageFetcher::OnStorageDownloadProgress onStorageDownloadProgress =
         [&](std::function<void(const std::string&)> callback) {
             fireProgress = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     Manifest manifest;
@@ -394,7 +449,7 @@ LOGOS_TEST(getToFile_fetches_the_manifest_before_the_download) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     std::function<void(const std::string&)> fireManifest;
@@ -402,7 +457,7 @@ LOGOS_TEST(getToFile_fetches_the_manifest_before_the_download) {
     StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
         [&](std::function<void(const std::string&)> callback) {
             fireManifest = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     StorageFetcher::DownloadManifest downloadManifest =
@@ -437,7 +492,7 @@ LOGOS_TEST(getToFile_does_not_download_when_the_manifest_fails) {
     StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
         [&](std::function<void(const std::string&)> callback) {
             fireManifest = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     StorageFetcher::DownloadManifest downloadManifest =
@@ -521,7 +576,7 @@ LOGOS_TEST(getToFile_downloads_the_cid_of_a_logos_url) {
     StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
         [&](std::function<void(const std::string&)> callback) {
             fireDone = std::move(callback);
-            return true;
+            return StorageFetcher::Unsubscribe([]() {});
         };
 
     Manifest manifest;
