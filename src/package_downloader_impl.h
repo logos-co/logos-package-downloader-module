@@ -84,6 +84,9 @@ public:
     // verification and installation follow the last sample, so
     // received == total means "downloaded", not "done".
     //
+    // downloadDone fires per package on success only. `source` is the URL
+    // actually used: `logos:<network>:<cid>` or the https one.
+    //
     // Requires concurrency:"multi" (metadata.json). A single-threaded module
     // holds the QtRO source thread for the whole download, and ModuleProxy
     // always QUEUES event emission onto it, so every sample would land in one
