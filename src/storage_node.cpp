@@ -2,6 +2,20 @@
 
 #include <string>
 
+namespace {
+
+// Reports the stop through `done` when the caller is unloading.
+bool stopIfUnloading(const StorageNode& node, const std::function<void(const std::string&)>& done) {
+    if (!node.stopped || !node.stopped()) {
+        return false;
+    }
+
+    done("the module is unloading");
+    return true;
+}
+
+}
+
 void startStorageNode(const StorageNode& node, std::function<void(const std::string& error)> done) {
     node.isRunning([node, done](bool running) {
         if (running) {
@@ -9,9 +23,17 @@ void startStorageNode(const StorageNode& node, std::function<void(const std::str
             return;
         }
 
+        if (stopIfUnloading(node, done)) {
+            return;
+        }
+
         node.loadConfig([node, done](const std::string& config, const std::string& error) {
             if (!error.empty()) {
                 done(error);
+                return;
+            }
+
+            if (stopIfUnloading(node, done)) {
                 return;
             }
 
@@ -25,9 +47,17 @@ void startStorageNode(const StorageNode& node, std::function<void(const std::str
             // If the context was created by another consumer, the start command
             // will succeed and the node will start if it is not already running.
             node.init(config, [node, done](bool) {
+                if (stopIfUnloading(node, done)) {
+                    return;
+                }
+
                 node.start([node, done](bool accepted) {
                     if (accepted) {
                         done({});
+                        return;
+                    }
+
+                    if (stopIfUnloading(node, done)) {
                         return;
                     }
 

@@ -10,3 +10,6 @@ extern std::function<void()> fireStorageReady;
 
 // The node makeStorageNode hands to the impl.
 extern StorageNode fakeStorageNode;
+
+// storage_module subscriptions the fetcher from makeStorageFetcher has taken.
+extern int fakeFetcherSubscriptions;
