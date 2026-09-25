@@ -69,13 +69,13 @@ sections:
           mkdir -p home
           ls -a home
           test ! -e home/.logos_storage/config.json && echo "no configuration"
-        code_block: "ls -a ~/.logos_storage"
+        code_block: "mkdir -p home && ls -a home"
         expect_contains:
           - "no configuration"
 
       - title: "Start the daemon on an empty home"
         run: 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
-        code_block: "logosctl --config-dir ./session -D --detach"
+        code_block: "HOME=$(pwd)/home logosctl --config-dir ./session -D --detach"
 
   - title: "The node is up, and nobody started it"
     step: true
@@ -111,7 +111,7 @@ sections:
 
       - title: "The repository exists on disk"
         run: 'ls -d home/.logos_storage/data'
-        code_block: 'ls -d ~/.logos_storage/data'
+        code_block: 'ls -d home/.logos_storage/data'
         expect_contains:
           - ".logos_storage/data"
 

@@ -372,9 +372,9 @@ sections:
           }
           EOF
         code_block: |
-          mkdir -p ~/.logos_storage
+          mkdir -p home/.logos_storage
 
-          cat > ~/.logos_storage/config.json <<EOF
+          cat > home/.logos_storage/config.json <<EOF
           {
               "data-dir": "$(pwd)/storage-data",
               "network": "logos.dev",
@@ -390,7 +390,7 @@ sections:
           The catalog is fetched with libcurl, which needs to be told to trust
           our self-signed certificate.
         run: 'HOME="$(pwd)/home" SSL_CERT_FILE="$(pwd)/localhost.crt" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
-        code_block: "SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D --detach"
+        code_block: "HOME=$(pwd)/home SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D --detach"
 
       - title: "The downloader starts the node"
         text: |
