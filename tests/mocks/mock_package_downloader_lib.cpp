@@ -19,8 +19,11 @@
 
 #include <logos_clib_mock.h>
 #include <package_downloader_lib.h>   // resolves to tests/stubs/package_downloader_lib.h
+#include "mock_package_downloader_lib.h"
 
 #include <string>
+
+std::function<void()> duringDownloadPackage;
 
 namespace {
 
@@ -84,6 +87,9 @@ std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOr
                                                   const ProgressFn& onProgress,
                                                   std::string* source) {
     LOGOS_CMOCK_RECORD("downloadPackage");
+    if (duringDownloadPackage) {
+        duringDownloadPackage();
+    }
     // Replay a fixed two-sample transfer so tests can assert the impl turns
     // lib progress into `downloadProgress` events, tagged with the right
     // package name. The real lib rate-limits before this point, so a mock

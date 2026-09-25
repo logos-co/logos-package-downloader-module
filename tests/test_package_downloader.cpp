@@ -14,6 +14,7 @@
 
 #include <logos_test.h>
 #include "package_downloader_impl.h"
+#include "mocks/mock_package_downloader_lib.h"
 #include "mocks/mock_storage_fetcher_factory.h"
 
 #include <functional>
@@ -413,4 +414,78 @@ LOGOS_TEST(storage_ready_starts_the_node) {
     fakeStorageNode = defaultNode;
 
     LOGOS_ASSERT_TRUE(started);
+}
+
+// Nothing to subscribe to before the module is there: a host without it
+// keeps no pending subscription.
+LOGOS_TEST(storage_events_are_subscribed_on_the_first_ready) {
+    auto t = LogosTestContext("package_downloader");
+    fakeFetcherSubscriptions = 0;
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    const int beforeReady = fakeFetcherSubscriptions;
+    fireStorageReady();
+    fireStorageReady();
+
+    LOGOS_ASSERT_EQ(beforeReady, 0);
+    LOGOS_ASSERT_EQ(fakeFetcherSubscriptions, 3);
+}
+
+// ── Unload ───────────────────────────────────────────────────────────────
+
+LOGOS_TEST(a_call_after_aboutToUnload_is_refused) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LOGOS_ASSERT_TRUE(impl._logosCoreAboutToUnload_() == LogosShutdown::Synchronous);
+
+    LogosMap r = impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+
+    LOGOS_ASSERT_EQ(r.value("error", ""), std::string("the module is unloading"));
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("downloadPackage"));
+}
+
+// After aboutToUnload the host stops waiting within seconds and tears the
+// event path down, so a download still in flight must emit nothing.
+LOGOS_TEST(a_download_in_flight_emits_nothing_after_aboutToUnload) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
+    PackageDownloaderImpl impl;
+
+    int finished = 0;
+    impl._logosCoreSetUnloadFinished_([&finished]() { ++finished; });
+
+    LogosShutdown shutdown = LogosShutdown::Synchronous;
+    duringDownloadPackage = [&]() { shutdown = impl._logosCoreAboutToUnload_(); };
+
+    impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    duringDownloadPackage = nullptr;
+
+    LOGOS_ASSERT_TRUE(shutdown == LogosShutdown::Asynchronous);
+    LOGOS_ASSERT_FALSE(events.has("downloadProgress"));
+    LOGOS_ASSERT_FALSE(events.has("downloadDone"));
+    LOGOS_ASSERT_EQ(finished, 1);
+}
+
+// The host destroys the impl at process exit, possibly under a call that
+// outlived its wait: the call's share keeps the lib alive until it returns.
+LOGOS_TEST(a_call_in_flight_keeps_the_lib_past_the_destructor) {
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
+    auto* impl = new PackageDownloaderImpl();
+
+    bool freedUnderTheCall = true;
+    duringDownloadPackage = [&]() {
+        impl->_logosCoreAboutToUnload_();
+        delete impl;
+        freedUnderTheCall = t.cFunctionCalled("PackageDownloaderLib_dtor");
+    };
+
+    impl->downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    duringDownloadPackage = nullptr;
+
+    LOGOS_ASSERT_FALSE(freedUnderTheCall);
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("PackageDownloaderLib_dtor"));
 }

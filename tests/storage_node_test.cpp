@@ -18,6 +18,10 @@ struct FakeNode {
     bool initAccepted = true;
     bool startAccepted = true;
 
+    // The caller unloads from the start, or while init runs.
+    bool unloading = false;
+    bool unloadDuringInit = false;
+
     std::string initConfig;
     bool initCalled = false;
     bool startCalled = false;
@@ -36,6 +40,7 @@ struct FakeNode {
         n.init = [this](const std::string& cfg, std::function<void(bool)> done) {
             initCalled = true;
             initConfig = cfg;
+            unloading = unloading || unloadDuringInit;
             done(initAccepted);
         };
 
@@ -43,6 +48,10 @@ struct FakeNode {
             startCalled = true;
             nodeRunning = nodeRunning || runningAfterStart;
             done(startAccepted);
+        };
+
+        n.stopped = [this]() {
+            return unloading;
         };
 
         return n;
@@ -124,4 +133,26 @@ LOGOS_TEST(start_accepts_a_refusal_from_a_node_that_came_up_meanwhile) {
     const std::string error = fake.start();
 
     LOGOS_ASSERT_TRUE(error.empty());
+}
+
+LOGOS_TEST(start_makes_no_call_once_the_module_unloads) {
+    FakeNode fake;
+    fake.unloading = true;
+
+    const std::string error = fake.start();
+
+    LOGOS_ASSERT_EQ(error, std::string("the module is unloading"));
+    LOGOS_ASSERT_FALSE(fake.initCalled);
+    LOGOS_ASSERT_FALSE(fake.startCalled);
+}
+
+LOGOS_TEST(start_stops_between_calls_when_the_module_unloads) {
+    FakeNode fake;
+    fake.unloadDuringInit = true;
+
+    const std::string error = fake.start();
+
+    LOGOS_ASSERT_EQ(error, std::string("the module is unloading"));
+    LOGOS_ASSERT_TRUE(fake.initCalled);
+    LOGOS_ASSERT_FALSE(fake.startCalled);
 }
