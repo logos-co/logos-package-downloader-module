@@ -104,7 +104,8 @@ Direct flake inputs (`flake.nix`):
 
 - `logos-module-builder` — provides `mkLogosModule`, the Qt plugin glue generator, and brings in `logos-cpp-sdk` + `logos-module` transitively.
 - `logos-package-downloader` — the underlying C++ download library (plain C++ + libcurl), staged into `lib/` at build time and linked into the plugin.
-- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` dependency; the host configures and starts the node.
+- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` optional dependency; the downloader configures and starts the node (`startStorage`).
+- `modules_state` — tells the downloader when `storage_module` is ready, through `modules().modules_state`. Also an optional dependency in `metadata.json`.
 
 Resolved transitively through the builder:
 
