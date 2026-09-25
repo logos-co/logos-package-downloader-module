@@ -101,8 +101,8 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
             }
         });
 
-    // Avoid error on CI:
-    // https://github.com/logos-co/logos-basecamp/actions/runs/35619356577/job/106422057147
+    // storage_module can be ready before this subscription arms: no ready edge
+    // arrives then, so the Armed replay checks is_ready once.
     modules.modules_state.onSubscriptionStatus(
         [&modules, onReady](logos::SubStatus status, std::uint64_t) {
             if (status == logos::SubStatus::Armed &&
@@ -111,8 +111,9 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
             }
         });
 
-    return [state]() {
+    return [&modules, state]() {
         state.cancel();
+        modules.modules_state.onSubscriptionStatus({});
     };
 }
 
