@@ -19,8 +19,11 @@
 
 #include <logos_clib_mock.h>
 #include <package_downloader_lib.h>   // resolves to tests/stubs/package_downloader_lib.h
+#include "mock_package_downloader_lib.h"
 
 #include <string>
+
+std::function<void()> duringDownloadPackage;
 
 namespace {
 
@@ -75,15 +78,39 @@ std::string PackageDownloaderLib::refreshCatalogs() {
     return mockStr("refreshCatalogs", "");   // empty == success
 }
 
+std::string PackageDownloaderLib::downloadPackage(const std::string& repoUrlOrName,
+                                                  const std::string& packageName,
+                                                  std::string& errorMessage,
+                                                  const std::string& version,
+                                                  const std::string& rootHash,
+                                                  const std::string& outputDir,
+                                                  const ProgressFn& onProgress,
+                                                  std::string* source) {
+    return downloadPackage(repoUrlOrName, packageName, errorMessage, version,
+                           rootHash, outputDir, onProgress, source, CancelFn{});
+}
+
 std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOrName*/,
                                                   const std::string& /*packageName*/,
-                                                  std::string& /*errorMessage*/,
+                                                  std::string& errorMessage,
                                                   const std::string& /*version*/,
                                                   const std::string& /*rootHash*/,
                                                   const std::string& /*outputDir*/,
                                                   const ProgressFn& onProgress,
-                                                  std::string* source) {
+                                                  std::string* source,
+                                                  const CancelFn& isCancelled) {
     LOGOS_CMOCK_RECORD("downloadPackage");
+    if (isCancelled && isCancelled()) {
+        errorMessage = "download cancelled";
+        return {};
+    }
+    if (duringDownloadPackage) {
+        duringDownloadPackage();
+    }
+    if (isCancelled && isCancelled()) {
+        errorMessage = "download cancelled";
+        return {};
+    }
     // Replay a fixed two-sample transfer so tests can assert the impl turns
     // lib progress into `downloadProgress` events, tagged with the right
     // package name. The real lib rate-limits before this point, so a mock

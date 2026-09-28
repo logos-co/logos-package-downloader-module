@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 #include <logos_json.h>
@@ -100,37 +99,33 @@ logos_events:
 protected:
     // Fires once, after the framework has populated the LogosModuleContext
     // getters (`modulePath()`, `instanceId()`, `instancePersistencePath()`)
-    // and before any method is dispatched. We use it to re-anchor m_lib's
+    // and before any method is dispatched. We use it to re-anchor the lib's
     // config file under the host-provided persistence directory; the
     // constructor seeds an XDG fallback so callers bypassing the
     // framework (lgpd CLI, unit tests) still see a working lib.
     void onContextReady() override;
 
+    // Refuses new calls, stops events and fails the storage waits, then
+    // waits for the calls in flight.
     LogosShutdown aboutToUnload() override;
 
 private:
-    // Counts a call that uses m_lib, for aboutToUnload(). Defined in the .cpp:
+    // Counts a call that uses the lib, for aboutToUnload(). Defined in the .cpp:
     // the codegen reads this header line by line and would take its members
     // for module methods.
     class PendingLibCall;
 
+    // The lib, the call count and the unloading flag. Each call holds a share,
+    // so one still running after the destructor frees nothing under it.
+    struct CallState;
+
     void startStorage();
 
-    lgpd::PackageDownloaderLib* m_lib;
+    std::shared_ptr<CallState> m_calls;
 
     // Save the storage fetcher so it doesn't need
     // to unsubscribe and resubscribe to storage_module events.
     std::shared_ptr<StorageFetcher> m_storageFetcher;
 
     std::function<void()> m_cancelWatchSubscription;
-
-    // Guards m_pendingLibCalls and m_unloading.
-    std::mutex m_callsMutex;
-
-    // Calls still using m_lib: aboutToUnload() waits for it to reach 0.
-    int m_pendingLibCalls = 0;
-
-    // Set when aboutToUnload() returned Asynchronous: the last call to end
-    // then calls unloadFinished().
-    bool m_unloading = false;
 };

@@ -24,6 +24,7 @@ namespace lgpd {
 /// before they reach this callback, so the impl forwards each one straight
 /// to a `downloadProgress` event.
 using ProgressFn = std::function<void(std::uint64_t received, std::uint64_t total)>;
+using CancelFn = std::function<bool()>;
 
 struct FetchResult {
     bool ok = false;
@@ -78,6 +79,16 @@ public:
                                 const std::string& outputDir = "",
                                 const ProgressFn& onProgress = {},
                                 std::string* source = nullptr);
+
+    std::string downloadPackage(const std::string& repoUrlOrName,
+                                const std::string& packageName,
+                                std::string& errorMessage,
+                                const std::string& version,
+                                const std::string& rootHash,
+                                const std::string& outputDir,
+                                const ProgressFn& onProgress,
+                                std::string* source,
+                                const CancelFn& isCancelled);
 
     std::string resolveDependenciesJson(const std::string& dependenciesJson,
                                         const std::string& installedPackagesJson = "");

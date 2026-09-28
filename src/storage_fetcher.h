@@ -44,6 +44,10 @@ public:
 
     ~StorageFetcher() override;
 
+    // Takes the storage_module subscriptions, once. Called on its first
+    // `ready`: a host without the module then keeps no pending subscriptions.
+    void subscribe();
+
     void cancelPendingDownloads();
 
     bool canHandle(const std::string& url) const override;
@@ -80,11 +84,13 @@ private:
     std::chrono::milliseconds m_stallTimeout;
     std::chrono::milliseconds m_manifestTimeout;
 
+    std::mutex m_mutex;
+
+    // Guarded by m_mutex: subscribe() runs on the main thread, downloads on workers.
+    bool m_subscribed = false;
     Unsubscribe m_unsubscribeDone;
     Unsubscribe m_unsubscribeProgress;
     Unsubscribe m_unsubscribeManifest;
-
-    std::mutex m_mutex;
 
     bool m_unloading = false;
     std::map<std::string, Pending> m_pending;
