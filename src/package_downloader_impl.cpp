@@ -61,8 +61,8 @@ LogosMap makeResult(const std::string& err) {
 // The answer to a call that arrives after aboutToUnload().
 const char* const kUnloading = "the module is unloading";
 
-// Where a download's byte counts go. Empty means "report nothing", and the
-// lib then skips curl's progress machinery entirely.
+// Where a download's byte counts go. Empty means "report nothing"; the lib
+// still runs curl's transfer callback to check for unload cancellation.
 using ProgressSink = std::function<void(const std::string& packageName,
                                         std::uint64_t received,
                                         std::uint64_t total)>;
@@ -76,7 +76,8 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
                         const std::string& packageName,
                         const std::string& version,
                         const std::string& rootHash,
-                        const ProgressSink& onProgress = {}) {
+                        const ProgressSink& onProgress,
+                        const lgpd::CancelFn& isCancelled) {
     LogosMap result = LogosMap::object();
     result["name"] = packageName;
 
@@ -90,7 +91,8 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
     std::string err;
     std::string source;
     std::string path = lib->downloadPackage(repoUrlOrName, packageName, err,
-                                            version, rootHash, "", progressFn, &source);
+                                            version, rootHash, "", progressFn, &source,
+                                            isCancelled);
 
     if (!source.empty()) {
         result["source"] = source;
@@ -364,7 +366,8 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                          if (!call.unloading()) {
                                              downloadProgress(name, received, total);
                                          }
-                                     });
+                                     },
+                                     [&call]() { return call.unloading(); });
 
     // A successful download contains the path where the package was downloaded.
     if (result.contains("path") && !call.unloading()) {
@@ -471,7 +474,8 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
                     if (!call.unloading()) {
                         downloadProgress(pkg, received, total);
                     }
-                });
+                },
+                [&call]() { return call.unloading(); });
 
             // A successful download contains the path where the package was downloaded.
             if (downloaded.contains("path") && !call.unloading()) {

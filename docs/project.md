@@ -219,10 +219,10 @@ single-line declaration in the header into a provider method plus an auto-genera
   to HTTPS.
 - **Unload.** `aboutToUnload()` refuses new calls, stops every event, fails the storage
   waits and stops a node start in progress, then returns `Asynchronous` while calls are in
-  flight. A failed storage wait still falls back to HTTPS, which the library cannot cancel
-  yet, so a download can outlive the host's 3 s wait; after it the host tears the event
-  path down, which is why such a call emits nothing. The destructor runs at process exit,
-  maybe under such a call: each call holds its own share of the library.
+  flight. The library checks the unload flag during HTTPS transfers and removes partial
+  files when cancelled. A failed storage wait may fall back to HTTPS while the module is
+  running; once unload begins, the pending call stops without emitting events. Each call
+  holds its own share of the library until it returns.
 - **Persistence path anchoring.** The constructor seeds the library with an XDG-style
   default config path (`$XDG_CONFIG_HOME/logos/package-downloader/repositories.json`,
   falling back to `$HOME/.config/...` or a temp dir) so callers that bypass the framework

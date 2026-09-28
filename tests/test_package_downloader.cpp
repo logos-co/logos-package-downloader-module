@@ -446,9 +446,9 @@ LOGOS_TEST(a_call_after_aboutToUnload_is_refused) {
     LOGOS_ASSERT_FALSE(t.cFunctionCalled("downloadPackage"));
 }
 
-// After aboutToUnload the host stops waiting within seconds and tears the
-// event path down, so a download still in flight must emit nothing.
-LOGOS_TEST(a_download_in_flight_emits_nothing_after_aboutToUnload) {
+// Unload reaches the library's cancellation callback during a download, so
+// it stops the transfer and the host sees no events or successful path.
+LOGOS_TEST(a_download_in_flight_is_cancelled_after_aboutToUnload) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
@@ -460,10 +460,13 @@ LOGOS_TEST(a_download_in_flight_emits_nothing_after_aboutToUnload) {
     LogosShutdown shutdown = LogosShutdown::Synchronous;
     duringDownloadPackage = [&]() { shutdown = impl._logosCoreAboutToUnload_(); };
 
-    impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    const LogosMap result =
+        impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
     duringDownloadPackage = nullptr;
 
     LOGOS_ASSERT_TRUE(shutdown == LogosShutdown::Asynchronous);
+    LOGOS_ASSERT_FALSE(result.contains("path"));
+    LOGOS_ASSERT_CONTAINS(result.value("error", ""), std::string("download cancelled"));
     LOGOS_ASSERT_FALSE(events.has("downloadProgress"));
     LOGOS_ASSERT_FALSE(events.has("downloadDone"));
     LOGOS_ASSERT_EQ(finished, 1);
