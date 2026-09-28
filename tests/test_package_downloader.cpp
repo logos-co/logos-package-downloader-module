@@ -14,7 +14,9 @@
 
 #include <logos_test.h>
 #include "package_downloader_impl.h"
+#include "mocks/mock_storage_fetcher_factory.h"
 
+#include <functional>
 #include <string>
 
 // ── Repository management ────────────────────────────────────────────────
@@ -175,6 +177,17 @@ LOGOS_TEST(downloadPinned_success_returns_path) {
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("downloadPackage"));
 }
 
+LOGOS_TEST(downloadPinned_reports_the_transport_that_served_the_package) {
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
+    t.mockCFunction("downloadSource").returns("logos:logos.test:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    LOGOS_ASSERT_EQ(r["source"].get<std::string>(),
+                    std::string("logos:logos.test:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL"));
+}
+
 LOGOS_TEST(downloadPinned_failure_returns_error_row) {
     auto t = LogosTestContext("package_downloader");
     // Unset downloadPackage → "" → empty path → failure.
@@ -253,6 +266,33 @@ LOGOS_TEST(downloadPinned_emits_progress_events_for_the_package) {
     LOGOS_ASSERT_EQ(progress[1].data, std::string("wallet_module:4096/4096"));
 }
 
+LOGOS_TEST(downloadPinned_emits_downloadDone_with_the_source) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
+    t.mockCFunction("downloadSource").returns("https://example.com/wallet_module-1.0.0.lgx");
+    PackageDownloaderImpl impl;
+
+    impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+
+    auto done = events.all("downloadDone");
+    LOGOS_ASSERT_EQ(done.size(), static_cast<size_t>(1));
+    LOGOS_ASSERT_EQ(done[0].data,
+                    std::string("wallet_module:https://example.com/wallet_module-1.0.0.lgx"));
+}
+
+LOGOS_TEST(downloadPinned_emits_no_downloadDone_when_the_download_fails) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    // The real lib writes the source before checks that can still fail.
+    t.mockCFunction("downloadSource").returns("https://example.com/wallet_module-1.0.0.lgx");
+    PackageDownloaderImpl impl;
+
+    impl.downloadPinned("", "wallet_module", "", "");
+
+    LOGOS_ASSERT_FALSE(events.has("downloadDone"));
+}
+
 // A failed download still reports the bytes that did move — the UI needs
 // them to keep the bar honest right up to the point of failure.
 LOGOS_TEST(downloadPinned_emits_progress_even_when_the_download_fails) {
@@ -287,6 +327,24 @@ LOGOS_TEST(downloadResolvedDependencies_attributes_progress_per_package) {
     LOGOS_ASSERT_EQ(progress[3].data, std::string("waku_module:4096/4096"));
 }
 
+LOGOS_TEST(downloadResolvedDependencies_emits_downloadDone_with_the_source) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("resolveDependenciesJson").returns(
+        R"([{"name":"chat_module","version":"2.0.0","rootHash":"h2","repositoryUrl":"r"},)"
+        R"({"name":"waku_module","version":"1.0.0","rootHash":"h1","repositoryUrl":"r"}])");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/pkg.lgx");
+    t.mockCFunction("downloadSource").returns("https://example.com/pkg.lgx");
+    PackageDownloaderImpl impl;
+
+    impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
+
+    auto done = events.all("downloadDone");
+    LOGOS_ASSERT_EQ(done.size(), static_cast<size_t>(2));
+    LOGOS_ASSERT_EQ(done[0].data, std::string("chat_module:https://example.com/pkg.lgx"));
+    LOGOS_ASSERT_EQ(done[1].data, std::string("waku_module:https://example.com/pkg.lgx"));
+}
+
 // A resolver error short-circuits before any transfer, so there is nothing
 // to report — no phantom progress for a package that never downloaded.
 LOGOS_TEST(downloadResolvedDependencies_emits_no_progress_when_resolution_fails) {
@@ -298,4 +356,61 @@ LOGOS_TEST(downloadResolvedDependencies_emits_no_progress_when_resolution_fails)
 
     impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_FALSE(events.has("downloadProgress"));
+}
+
+// ── Storage node bring-up ────────────────────────────────────────────────
+
+namespace {
+
+// Only an address: the mocked factory never dereferences it.
+int unusedModules = 0;
+
+void makeContextReady(PackageDownloaderImpl& impl) {
+    impl._logosCoreSetLogosModulesPtr_(&unusedModules);
+    impl._logosCoreSetContext_("", "", "");
+}
+
+// Answers at once, so the start is over when fireStorageReady() returns.
+StorageNode fakeNode(bool& started) {
+    StorageNode node;
+
+    node.isRunning = [](std::function<void(bool)> done) { done(false); };
+    node.loadConfig = [](std::function<void(const std::string&, const std::string&)> done) { done("{}", ""); };
+    node.init = [](const std::string&, std::function<void(bool)> done) { done(true); };
+    node.start = [&started](std::function<void(bool)> done) {
+        started = true;
+        done(true);
+    };
+
+    return node;
+}
+
+} // namespace
+
+// Before any call is served: setStorageFetcher then never waits on the lib's
+// lock, which a first catalog fetch holds across the network.
+LOGOS_TEST(context_ready_installs_the_storage_fetcher) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    makeContextReady(impl);
+
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
+}
+
+LOGOS_TEST(storage_ready_starts_the_node) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    fireStorageReady();
+
+    // Before the assertion, which may end the test: the fake holds a
+    // reference to `started`.
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_TRUE(started);
 }
