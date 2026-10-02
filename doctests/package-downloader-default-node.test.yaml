@@ -5,13 +5,15 @@ release: ""
 intro: |
   The package downloader needs a storage node running before it can serve a
   `logos:<network>:<cid>` url, and it brings that node up itself when the storage module
-  becomes available. This tutorial proves it with no pre-existing configuration.
+  becomes available. This tutorial proves it on the default configuration, kept off the
+  public network: the node gets no bootstrap nodes, and everything else, the data
+  directory included, comes from the defaults.
 
 what_you_build: "A Logos daemon whose storage node was never started by hand."
 
 what_you_learn:
   - How the downloader starts the storage node when the storage module loads
-  - Where the node configuration is read from, and what happens when there is none
+  - Where the node configuration is read from, and how the defaults fill in the rest
 prerequisites:
   - |
     **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
@@ -59,21 +61,40 @@ sections:
         expect_contains:
           - "storage_module"
 
-      - title: "There is no configuration to read"
+      - title: "Keep the node off the public network"
         text: |
-          The storage module manages the node configuration in
-          `$HOME/.logos_storage/config.json`. `HOME` points at an empty
-          directory here, so there is none.
+          The storage module reads the node configuration from
+          `$HOME/.logos_storage/config.json`, and `HOME` points at an empty
+          directory here. With no configuration, the node would join the public
+          `logos.test` network, and its start would wait on that network's
+          bootstrap nodes for a minute or more.
+
+          This configuration gives the node no bootstrap nodes and a loopback
+          address, and sets nothing else.
         run: |
           set -eu
-          mkdir -p home
-          ls -a home
-          test ! -e home/.logos_storage/config.json && echo "no configuration"
-        code_block: "mkdir -p home && ls -a home"
+          mkdir -p home/.logos_storage
+          cat > home/.logos_storage/config.json <<'EOF'
+          {
+              "no-bootstrap-node": true,
+              "listen-ip": "127.0.0.1",
+              "nat": "extip:127.0.0.1"
+          }
+          EOF
+          cat home/.logos_storage/config.json
+        code_block: |
+          mkdir -p home/.logos_storage
+          cat > home/.logos_storage/config.json <<'EOF'
+          {
+              "no-bootstrap-node": true,
+              "listen-ip": "127.0.0.1",
+              "nat": "extip:127.0.0.1"
+          }
+          EOF
         expect_contains:
-          - "no configuration"
+          - '"no-bootstrap-node": true'
 
-      - title: "Start the daemon on an empty home"
+      - title: "Start the daemon"
         run: 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
         code_block: "HOME=$(pwd)/home logosctl --config-dir ./session -D --detach"
 
@@ -88,7 +109,7 @@ sections:
         run: |
           set -eu
 
-          # The node takes a few seconds to join the network
+          # The node takes a moment to start
           for _ in $(seq 30); do
             running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
             case "$running" in *'"result":true'*) break ;; esac
@@ -96,14 +117,20 @@ sections:
           done
 
           echo "$running"
+
+          # Not running: show what the node was doing instead
+          case "$running" in
+            *'"result":true'*) ;;
+            *) grep storage_module session/logs/daemon.log | tail -n 40; exit 1 ;;
+          esac
         code_block: 'logosctl call storage_module isRunning'
         expect_contains:
-          - "true"
+          - '"result":true'
 
       - title: "It runs on the default data directory"
         text: |
-          With no configuration file, `loadConfigOrDefault` gives the default configuration, including
-          the data directory, under the shared storage home.
+          The configuration sets no data directory, so `loadConfigOrDefault` fills in the
+          default one, under the shared storage home.
         run: './logosctl/bin/logosctl --config-dir ./session call storage_module dataDir'
         code_block: 'logosctl call storage_module dataDir'
         expect_contains:
@@ -144,9 +171,9 @@ sections:
   - title: "Shut down while the node starts"
     step: true
     text: |
-      Starting the daemon starts the node, which takes a few seconds. Stopping
-      the daemon during that time must still end cleanly: the daemon exits,
-      and nothing crashes.
+      Starting the daemon starts the node. Stopping the daemon right away,
+      while the node may still be starting, must still end cleanly: the daemon
+      exits, and nothing crashes.
     steps:
       - title: "Start the daemon and stop it at once"
         run: |
