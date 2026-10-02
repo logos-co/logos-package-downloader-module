@@ -392,10 +392,18 @@ sections:
         run: 'HOME="$(pwd)/home" SSL_CERT_FILE="$(pwd)/localhost.crt" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
         code_block: "HOME=$(pwd)/home SSL_CERT_FILE=$(pwd)/localhost.crt logosctl --config-dir ./session -D --detach"
 
+      - title: "Start the downloader"
+        text: |
+          The downloader does nothing until a consumer starts it.
+        run: './logosctl/bin/logosctl --config-dir ./session call package_downloader start'
+        code_block: 'logosctl call package_downloader start'
+        expect_contains:
+          - '"success":true'
+
       - title: "The downloader starts the node"
         text: |
           The daemon loads the storage module at start,
-          and the downloader then starts the node.
+          and starting the downloader starts the node.
         run: |
           set -eu
 

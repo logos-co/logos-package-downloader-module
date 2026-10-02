@@ -5,14 +5,14 @@ release: ""
 intro: |
   The package downloader needs a storage node running before it can serve a
   `logos:<network>:<cid>` url, and it brings that node up itself when the storage module
-  becomes available. This tutorial proves it on the default configuration, kept off the
+  is started. This tutorial proves it on the default configuration, kept off the
   public network: the node gets no bootstrap nodes, and everything else, the data
   directory included, comes from the defaults.
 
 what_you_build: "A Logos daemon whose storage node was never started by hand."
 
 what_you_learn:
-  - How the downloader starts the storage node when the storage module loads
+  - How starting the downloader starts the storage node
   - Where the node configuration is read from, and how the defaults fill in the rest
 prerequisites:
   - |
@@ -98,14 +98,34 @@ sections:
         run: 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
         code_block: "HOME=$(pwd)/home logosctl --config-dir ./session -D --detach"
 
-  - title: "The node is up, and nobody started it"
+  - title: "Starting the downloader starts the node"
     step: true
     steps:
+      - title: "Loading the downloader starts nothing"
+        text: |
+          The daemon loads the storage module and the downloader at start. The
+          downloader waits for a consumer, so the node is still down.
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader getState
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+        code_block: |
+          logosctl call package_downloader getState
+          logosctl call storage_module isRunning
+        expect_contains:
+          - '"result":"stopped"'
+          - '"result":false'
+
+      - title: "Start the downloader"
+        run: './logosctl/bin/logosctl --config-dir ./session call package_downloader start'
+        code_block: 'logosctl call package_downloader start'
+        expect_contains:
+          - '"success":true'
+
       - title: "The node is running"
         text: |
-          The daemon loads the storage module at start,
-          and the downloader then loads the configuration, initialises the node
-          and starts it.
+          The downloader loads the configuration, initialises the node and
+          starts it.
         run: |
           set -eu
 
@@ -171,15 +191,16 @@ sections:
   - title: "Shut down while the node starts"
     step: true
     text: |
-      Starting the daemon starts the node. Stopping the daemon right away,
+      Starting the downloader starts the node. Stopping the daemon right away,
       while the node may still be starting, must still end cleanly: the daemon
       exits, and nothing crashes.
     steps:
-      - title: "Start the daemon and stop it at once"
+      - title: "Start the daemon and the downloader, and stop at once"
         run: |
           set -eu
 
           HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader start
           # Not a terminal: status prints JSON.
           pid=$(./logosctl/bin/logosctl --config-dir ./session status | jq -r '.daemon.pid // empty')
           if [ -z "$pid" ]; then
@@ -207,6 +228,7 @@ sections:
           echo "stopped cleanly"
         code_block: |
           HOME=$(pwd)/home logosctl --config-dir ./session -D --detach
+          logosctl call package_downloader start
           logosctl stop
         expect_contains:
           - "stopped cleanly"

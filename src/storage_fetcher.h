@@ -48,7 +48,8 @@ public:
     // `ready`: a host without the module then keeps no pending subscriptions.
     void subscribe();
 
-    void cancelPendingDownloads();
+    // Fails the downloads in flight with `reason`, and every later one.
+    void cancelPendingDownloads(const std::string& reason = "the module is unloading");
 
     bool canHandle(const std::string& url) const override;
 
@@ -92,7 +93,8 @@ private:
     Unsubscribe m_unsubscribeProgress;
     Unsubscribe m_unsubscribeManifest;
 
-    bool m_unloading = false;
+    // Set by cancelPendingDownloads(): the error of every download from then on.
+    std::string m_cancelled;
     std::map<std::string, Pending> m_pending;
     std::map<std::string, std::promise<lgpd::FetchResult>> m_pendingManifests;
 };

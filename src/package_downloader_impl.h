@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <logos_json.h>
@@ -81,6 +82,16 @@ public:
     // from the catalog.
     LogosList resolveDependencies(const std::string& dependenciesJson, const std::string& installedPackagesJson);
 
+    // Lifecycle. The module does nothing on load: a consumer calls start()
+    // before its first call, and every other method answers "not started"
+    // until then. start() loads the repository config and, when
+    // storage_module is there, starts the storage node; it is idempotent.
+    // stop() cancels the downloads in flight and lets go of the storage node,
+    // without stopping it. getState() returns "stopped" or "running".
+    LogosMap  start();
+    LogosMap  stop();
+    std::string getState();
+
     // catalogChanged fires on success from addRepository, removeRepository,
     // setRepositoryEnabled, and setDownloadSource when the source changes —
     // Subscribers re-fetch via listRepositories() / getCatalog().
@@ -105,14 +116,6 @@ logos_events:
     void downloadDone(const std::string& packageName, const std::string& source);
 
 protected:
-    // Fires once, after the framework has populated the LogosModuleContext
-    // getters (`modulePath()`, `instanceId()`, `instancePersistencePath()`)
-    // and before any method is dispatched. We use it to re-anchor the lib's
-    // config file under the host-provided persistence directory; the
-    // constructor seeds an XDG fallback so callers bypassing the
-    // framework (lgpd CLI, unit tests) still see a working lib.
-    void onContextReady() override;
-
     // Refuses new calls, stops events and fails the storage waits, then
     // waits for the calls in flight.
     LogosShutdown aboutToUnload() override;
@@ -123,17 +126,18 @@ private:
     // for module methods.
     class PendingLibCall;
 
-    // The lib, the call count and the unloading flag. Each call holds a share,
-    // so one still running after the destructor frees nothing under it.
+    // What start() built: the lib, the storage fetcher and the storage watch.
+    struct Run;
+
+    // The current run, the call count and the unloading flag. Each call holds a
+    // share, so one still running after the destructor frees nothing under it.
     struct CallState;
 
-    void startStorage();
+    void startStorage(const std::shared_ptr<Run>& run);
 
     std::shared_ptr<CallState> m_calls;
 
-    // Save the storage fetcher so it doesn't need
-    // to unsubscribe and resubscribe to storage_module events.
-    std::shared_ptr<StorageFetcher> m_storageFetcher;
-
-    std::function<void()> m_cancelWatchSubscription;
+    // Serialises start() and stop(). Those run on workers ("multi"), and the
+    // main thread never takes it: subscribing may wait for the main thread.
+    std::mutex m_lifecycleMutex;
 };

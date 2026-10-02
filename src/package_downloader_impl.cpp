@@ -61,6 +61,12 @@ LogosMap makeResult(const std::string& err) {
 // The answer to a call that arrives after aboutToUnload().
 const char* const kUnloading = "the module is unloading";
 
+// The answer to a call that arrives before start(), or after stop().
+const char* const kNotStarted = "the downloader is not started: call start() first";
+
+// Why a stop() fails the storage downloads in flight.
+const char* const kStopped = "the downloader was stopped";
+
 // Where a download's byte counts go. Empty means "report nothing"; the lib
 // still runs curl's transfer callback to check for unload cancellation.
 using ProgressSink = std::function<void(const std::string& packageName,
@@ -117,9 +123,62 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
 
 } // namespace
 
+struct PackageDownloaderImpl::Run {
+    std::shared_ptr<lgpd::PackageDownloaderLib> lib;
+
+    // Null outside a framework context: no storage_module to reach.
+    std::shared_ptr<StorageFetcher> storageFetcher;
+
+    // Set once, by stop(). Read without the lock by the downloads' cancel checks.
+    std::atomic<bool> stopped{false};
+
+    std::mutex mutex;
+    std::function<void()> cancelWatch;
+
+    // Keeps the storage watch, or cancels it at once if the run already stopped.
+    void watch(std::function<void()> cancel) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+
+            if (!stopped) {
+                cancelWatch = std::move(cancel);
+                return;
+            }
+        }
+
+        if (cancel) {
+            cancel();
+        }
+    }
+
+    void stop(const std::string& reason) {
+        std::function<void()> cancel;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+
+            if (stopped) {
+                return;
+            }
+
+            stopped = true;
+            cancel = std::move(cancelWatch);
+        }
+
+        if (cancel) {
+            cancel();
+        }
+
+        if (storageFetcher) {
+            storageFetcher->cancelPendingDownloads(reason);
+        }
+    }
+};
+
 struct PackageDownloaderImpl::CallState {
     std::mutex mutex;
-    std::shared_ptr<lgpd::PackageDownloaderLib> lib;
+
+    // Null while stopped. A call keeps its own share past a stop().
+    std::shared_ptr<Run> run;
     int pending = 0;
 
     // Set by aboutToUnload(): new calls are refused and no event is emitted.
@@ -134,102 +193,148 @@ public:
     explicit PendingLibCall(PackageDownloaderImpl& impl);
     ~PendingLibCall();
 
-    // False for a call that came after aboutToUnload(): it must not start.
-    explicit operator bool() const { return m_lib != nullptr; }
+    // False for a call that must not start: unloading, or not started.
+    explicit operator bool() const { return m_run != nullptr; }
 
-    lgpd::PackageDownloaderLib* lib() const { return m_lib.get(); }
+    // Why operator bool is false.
+    const char* refusal() const { return m_counted ? kNotStarted : kUnloading; }
+
+    // True when the call counts towards aboutToUnload()'s wait.
+    bool counted() const { return m_counted; }
+
+    const std::shared_ptr<Run>& run() const { return m_run; }
+
+    lgpd::PackageDownloaderLib* lib() const { return m_run->lib.get(); }
 
     // Once true, the call emits nothing: the host tears the event path down.
     bool unloading() const { return m_state->unloading; }
 
+    // Once true, the call's downloads stop.
+    bool cancelled() const { return m_state->unloading || (m_run && m_run->stopped); }
+
 private:
     std::shared_ptr<CallState> m_state;
-    std::shared_ptr<lgpd::PackageDownloaderLib> m_lib;
+    std::shared_ptr<Run> m_run;
+    bool m_counted = false;
 };
 
 PackageDownloaderImpl::PackageDownloaderImpl()
     : m_calls(std::make_shared<CallState>())
 {
-    // Constructor seeds the lib with an XDG-style fallback so callers that
-    // bypass the LogosAPI framework (the `lgpd` CLI tests, unit tests
-    // constructing the impl directly) still get a working downloader.
-    // When the framework drives the module, onContextReady() below
-    // re-points it at the host-provided persistence directory. The
-    // replacement is cheap because no fetches or registry mutations have
-    // happened yet — the only sunk cost is reading the (possibly absent)
-    // XDG config file once in the lib's constructor.
-    m_calls->lib = std::make_shared<lgpd::PackageDownloaderLib>(defaultConfigPath());
 }
 
 // The host runs this at process exit, after its grace period: a call may still
 // be running, and keeps the lib alive through its own share.
 PackageDownloaderImpl::~PackageDownloaderImpl() {
-    if (m_cancelWatchSubscription) {
-        m_cancelWatchSubscription();
+    std::shared_ptr<Run> run;
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+        m_calls->onDrained = nullptr;
+        run = std::move(m_calls->run);
     }
 
-    std::lock_guard<std::mutex> lock(m_calls->mutex);
-
-    m_calls->onDrained = nullptr;
-    m_calls->lib.reset();
+    if (run) {
+        run->stop(kUnloading);
+    }
 }
 
-void PackageDownloaderImpl::onContextReady() {
-    // The codegen-generated provider has just populated the
-    // LogosModuleContext base with the three host-injected paths
-    // (modulePath / instanceId / instancePersistencePath). Re-anchor
-    // the lib at `<instancePersistencePath>/repositories.json` so the
-    // repo config lives under the per-module data directory the host
-    // owns the lifecycle of (e.g. Basecamp's
-    // `module_data/package_downloader/<instanceId>/`).
-    //
-    // When loaded outside a host that provisions persistence (CLI
-    // tests, unit tests using the impl directly) the getter returns
-    // an empty string and we keep the XDG-default lib seeded by the
-    // constructor. Safe to replace here because the framework
-    // guarantees onContextReady fires before any method dispatch —
-    // no fetches or registry mutations have hit the lib yet.
+LogosMap PackageDownloaderImpl::start() {
+    std::lock_guard<std::mutex> lifecycle(m_lifecycleMutex);
 
-    std::shared_ptr<lgpd::PackageDownloaderLib> lib;
+    // Counted, so that aboutToUnload() waits for a start in progress.
+    PendingLibCall call(*this);
 
-    if (!instancePersistencePath().empty()) {
-        const std::string newPath =
-            (fs::path(instancePersistencePath()) / "repositories.json").string();
-        lib = std::make_shared<lgpd::PackageDownloaderLib>(newPath);
+    if (!call.counted()) {
+        return makeResult(kUnloading);
+    }
+
+    if (call) {
+        return makeResult("");
+    }
+
+    // The host's per-instance directory, or an XDG one outside a host (lgpd
+    // CLI, unit tests), where instancePersistencePath() is empty.
+    const std::string configPath = instancePersistencePath().empty()
+        ? defaultConfigPath()
+        : (fs::path(instancePersistencePath()) / "repositories.json").string();
+
+    auto run = std::make_shared<Run>();
+    run->lib = std::make_shared<lgpd::PackageDownloaderLib>(configPath);
+
+    // Before any call is served: setStorageFetcher then never waits on the
+    // lib's lock, which a first catalog fetch holds across the network.
+    if (isContextReady()) {
+        run->storageFetcher = makeStorageFetcher(modules());
+        run->lib->setStorageFetcher(run->storageFetcher);
     }
 
     {
         std::lock_guard<std::mutex> lock(m_calls->mutex);
 
-        if (lib) {
-            m_calls->lib = lib;
+        if (m_calls->unloading) {
+            return makeResult(kUnloading);
         }
 
-        lib = m_calls->lib;
+        m_calls->run = run;
     }
 
-    m_storageFetcher = makeStorageFetcher(modules());
-    lib->setStorageFetcher(m_storageFetcher);
+    if (isContextReady()) {
+        // Weak: the watch's callback may outlive its cancellation.
+        std::weak_ptr<Run> weakRun = run;
 
-    m_cancelWatchSubscription = watchStorageReady(modules(), [this]() {
-        startStorage();
-    });
+        run->watch(watchStorageReady(modules(), [this, weakRun]() {
+            if (std::shared_ptr<Run> current = weakRun.lock()) {
+                startStorage(current);
+            }
+        }));
+    }
+
+    return makeResult("");
 }
 
-void PackageDownloaderImpl::startStorage() {
+LogosMap PackageDownloaderImpl::stop() {
+    std::lock_guard<std::mutex> lifecycle(m_lifecycleMutex);
+
+    std::shared_ptr<Run> run;
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+        if (m_calls->unloading) {
+            return makeResult(kUnloading);
+        }
+
+        run = std::move(m_calls->run);
+    }
+
+    if (run) {
+        run->stop(kStopped);
+    }
+
+    return makeResult("");
+}
+
+std::string PackageDownloaderImpl::getState() {
+    std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+    return m_calls->run && !m_calls->unloading ? "running" : "stopped";
+}
+
+void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
     // Kept until the last reply: aboutToUnload() waits for it.
     auto call = std::make_shared<PendingLibCall>(*this);
 
-    if (!*call) {
+    // Stopped, or restarted, since the watch fired.
+    if (!*call || call->run() != run) {
         return;
     }
 
-    if (m_storageFetcher) {
-        m_storageFetcher->subscribe();
+    if (run->storageFetcher) {
+        run->storageFetcher->subscribe();
     }
 
     StorageNode node = makeStorageNode(modules());
-    node.stopped = [call]() { return call->unloading(); };
+    node.stopped = [call]() { return call->cancelled(); };
 
     startStorageNode(node, [call](const std::string& error) {
         if (!error.empty()) {
@@ -239,19 +344,16 @@ void PackageDownloaderImpl::startStorage() {
 }
 
 LogosShutdown PackageDownloaderImpl::aboutToUnload() {
-    if (m_cancelWatchSubscription) {
-        m_cancelWatchSubscription();
-        m_cancelWatchSubscription = nullptr;
-    }
-
+    std::shared_ptr<Run> run;
     {
         std::lock_guard<std::mutex> lock(m_calls->mutex);
 
         m_calls->unloading = true;
+        run = m_calls->run;
     }
 
-    if (m_storageFetcher) {
-        m_storageFetcher->cancelPendingDownloads();
+    if (run) {
+        run->stop(kUnloading);
     }
 
     std::lock_guard<std::mutex> lock(m_calls->mutex);
@@ -275,11 +377,12 @@ PackageDownloaderImpl::PendingLibCall::PendingLibCall(PackageDownloaderImpl& imp
     }
 
     ++m_state->pending;
-    m_lib = m_state->lib;
+    m_counted = true;
+    m_run = m_state->run;
 }
 
 PackageDownloaderImpl::PendingLibCall::~PendingLibCall() {
-    if (!m_lib) {
+    if (!m_counted) {
         return;
     }
 
@@ -301,7 +404,7 @@ PackageDownloaderImpl::PendingLibCall::~PendingLibCall() {
 
 LogosMap PackageDownloaderImpl::addRepository(const std::string& url) {
     PendingLibCall call(*this);
-    if (!call) return makeResult(kUnloading);
+    if (!call) return makeResult(call.refusal());
     const std::string err = call.lib()->registry().addRepository(url);
     if (err.empty() && !call.unloading()) catalogChanged();
     return makeResult(err);
@@ -309,7 +412,7 @@ LogosMap PackageDownloaderImpl::addRepository(const std::string& url) {
 
 LogosMap PackageDownloaderImpl::removeRepository(const std::string& url) {
     PendingLibCall call(*this);
-    if (!call) return makeResult(kUnloading);
+    if (!call) return makeResult(call.refusal());
     const std::string err = call.lib()->registry().removeRepository(url);
     if (err.empty() && !call.unloading()) catalogChanged();
     return makeResult(err);
@@ -317,7 +420,7 @@ LogosMap PackageDownloaderImpl::removeRepository(const std::string& url) {
 
 LogosMap PackageDownloaderImpl::setRepositoryEnabled(const std::string& url, bool enabled) {
     PendingLibCall call(*this);
-    if (!call) return makeResult(kUnloading);
+    if (!call) return makeResult(call.refusal());
     const std::string err = call.lib()->registry().setEnabled(url, enabled);
     if (err.empty() && !call.unloading()) catalogChanged();
     return makeResult(err);
@@ -331,7 +434,7 @@ LogosList PackageDownloaderImpl::listRepositories() {
 
 LogosMap PackageDownloaderImpl::refreshCatalog() {
     PendingLibCall call(*this);
-    if (!call) return makeResult(kUnloading);
+    if (!call) return makeResult(call.refusal());
     return makeResult(call.lib()->refreshCatalogs());
 }
 
@@ -355,7 +458,7 @@ std::string PackageDownloaderImpl::getDownloadSource() {
 
 LogosMap PackageDownloaderImpl::setDownloadSource(const std::string& source) {
     PendingLibCall call(*this);
-    if (!call) return makeResult(kUnloading);
+    if (!call) return makeResult(call.refusal());
 
     const auto parsed = lgpd::parseDownloadSource(source);
     if (!parsed) {
@@ -380,7 +483,7 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
     if (!call) {
         LogosMap refused = LogosMap::object();
         refused["name"] = packageName;
-        refused["error"] = kUnloading;
+        refused["error"] = call.refusal();
         return refused;
     }
 
@@ -391,7 +494,7 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
                                              downloadProgress(name, received, total);
                                          }
                                      },
-                                     [&call]() { return call.unloading(); });
+                                     [&call]() { return call.cancelled(); });
 
     // A successful download contains the path where the package was downloaded.
     if (result.contains("path") && !call.unloading()) {
@@ -456,7 +559,7 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     };
 
     if (!call) {
-        pushError(kUnloading);
+        pushError(call.refusal());
         return results;
     }
 
@@ -482,11 +585,11 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
             std::string rootHash = entry.value("rootHash", "");
             std::string repoUrl  = entry.value("repositoryUrl", "");
 
-            // Unloading: the host stops waiting soon, so start no further package.
-            if (call.unloading()) {
+            // Unloading or stopped: start no further package.
+            if (call.cancelled()) {
                 LogosMap e = LogosMap::object();
                 e["name"]  = name;
-                e["error"] = kUnloading;
+                e["error"] = call.unloading() ? kUnloading : kStopped;
                 results.push_back(e);
                 break;
             }
@@ -499,7 +602,7 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
                         downloadProgress(pkg, received, total);
                     }
                 },
-                [&call]() { return call.unloading(); });
+                [&call]() { return call.cancelled(); });
 
             // A successful download contains the path where the package was downloaded.
             if (downloaded.contains("path") && !call.unloading()) {
@@ -554,7 +657,7 @@ LogosList PackageDownloaderImpl::resolveDependencies(const std::string& dependen
     };
 
     if (!call) {
-        pushError(kUnloading);
+        pushError(call.refusal());
         return results;
     }
 
