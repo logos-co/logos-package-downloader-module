@@ -61,7 +61,8 @@ logos-package-downloader-module/
 │   ├── package_downloader_impl.h       # Bridge interface: PackageDownloaderImpl
 │   │                                   #   (inherits LogosModuleContext), method decls
 │   │                                   #   (one per line — codegen requirement),
-│   │                                   #   logos_events: catalogChanged, start/stop/getState
+│   │                                   #   start/stop/getState, logos_events: catalogChanged,
+│   │                                   #   downloadProgress, downloadDone
 │   └── package_downloader_impl.cpp     # Implementation: holds lgpd::PackageDownloaderLib*,
 │                                       #   JSON parsing, {success,error} shaping,
 │                                       #   pinnedDownload helper, exception-fenced
