@@ -8,8 +8,9 @@
 #       local storage node, serves a catalog advertising its CID over local
 #       HTTPS, and downloads it back through the storage network.
 #   package-downloader-default-node.test.yaml — loads the downloader and the
-#       storage module on an empty home, and checks the node the downloader
-#       starts by itself, on the module's default configuration.
+#       storage module on a fresh home, and checks the node the downloader
+#       starts by itself, on the default configuration kept off the public
+#       network.
 #
 # The runner is the shared `doctest` CLI
 # (https://github.com/logos-co/logos-doctest), invoked directly via its flake.
