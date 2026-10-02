@@ -223,6 +223,7 @@ failure). Read operations return lists or maps of domain data.
 | Event | Meaning |
 |-------|---------|
 | **Catalog changed** | Emitted after any successful repository mutation (add / remove / enable-disable). Subscribers re-read the repository list and catalog. |
+| **State changed** | Emitted when *start* or *stop* changes the module's state, with the new state (`running` or `stopped`). |
 
 ---
 

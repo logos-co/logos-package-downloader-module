@@ -62,7 +62,7 @@ logos-package-downloader-module/
 │   │                                   #   (inherits LogosModuleContext), method decls
 │   │                                   #   (one per line — codegen requirement),
 │   │                                   #   start/stop/getState, logos_events: catalogChanged,
-│   │                                   #   downloadProgress, downloadDone
+│   │                                   #   downloadProgress, downloadDone, stateChanged
 │   └── package_downloader_impl.cpp     # Implementation: holds lgpd::PackageDownloaderLib*,
 │                                       #   JSON parsing, {success,error} shaping,
 │                                       #   pinnedDownload helper, exception-fenced
@@ -189,6 +189,7 @@ single-line declaration in the header into a provider method plus an auto-genera
 | `start` | `LogosMap start()` | Build the library on `<instancePersistencePath>/repositories.json` (the XDG fallback outside a host), install the storage fetcher and watch for `storage_module`. Returns `{success, error?}`; idempotent. Every other method is refused with `the downloader is not started` before it |
 | `stop` | `LogosMap stop()` | Drop the library, cancel the storage watch and fail the downloads in flight. The storage node keeps running. Returns `{success, error?}` |
 | `getState` | `std::string getState()` | `"stopped"` or `"running"` |
+| `stateChanged` | `void stateChanged(const std::string& state)` *(under `logos_events:`)* | Event fired when `start()` or `stop()` changes the state, with the new one (`"running"` or `"stopped"`). Not fired by a call that changes nothing, nor by an unload |
 
 ### How it works internally
 

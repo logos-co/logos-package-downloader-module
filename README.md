@@ -27,6 +27,10 @@ every other method is refused with `the downloader is not started` until then
 | `stop()` | `QVariantMap` | Cancel the downloads in flight and let go of the storage node, without stopping it: it is shared |
 | `getState()` | `QString` | `"stopped"` or `"running"` |
 
+`stateChanged(state)` is emitted when `start()` or `stop()` changes the state,
+with the new one (`"running"` or `"stopped"`). A call that changes nothing emits
+nothing, and neither does an unload.
+
 ### Repositories
 
 A repository is the URL of a `logos-repo.json`. The built-in default repo

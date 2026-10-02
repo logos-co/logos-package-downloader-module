@@ -22,3 +22,7 @@ void PackageDownloaderImpl::downloadDone(const std::string& packageName,
                                          const std::string& source) {
     recordEvent("downloadDone", packageName + ":" + source);
 }
+
+void PackageDownloaderImpl::stateChanged(const std::string& state) {
+    recordEvent("stateChanged", state);
+}

@@ -67,6 +67,10 @@ const char* const kNotStarted = "the downloader is not started: call start() fir
 // Why a stop() fails the storage downloads in flight.
 const char* const kStopped = "the downloader was stopped";
 
+// The states getState() answers and stateChanged reports.
+const char* const kStateRunning = "running";
+const char* const kStateStopped = "stopped";
+
 // Where a download's byte counts go. Empty means "report nothing"; the lib
 // still runs curl's transfer callback to check for unload cancellation.
 using ProgressSink = std::function<void(const std::string& packageName,
@@ -290,6 +294,10 @@ LogosMap PackageDownloaderImpl::start() {
         }));
     }
 
+    if (!call.unloading()) {
+        stateChanged(kStateRunning);
+    }
+
     return makeResult("");
 }
 
@@ -309,6 +317,10 @@ LogosMap PackageDownloaderImpl::stop() {
 
     if (run) {
         run->stop(kStopped);
+
+        if (!m_calls->unloading) {
+            stateChanged(kStateStopped);
+        }
     }
 
     return makeResult("");
@@ -317,7 +329,7 @@ LogosMap PackageDownloaderImpl::stop() {
 std::string PackageDownloaderImpl::getState() {
     std::lock_guard<std::mutex> lock(m_calls->mutex);
 
-    return m_calls->run && !m_calls->unloading ? "running" : "stopped";
+    return m_calls->run && !m_calls->unloading ? kStateRunning : kStateStopped;
 }
 
 void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {

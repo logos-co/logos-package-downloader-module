@@ -87,7 +87,8 @@ public:
     // until then. start() loads the repository config and, when
     // storage_module is there, starts the storage node; it is idempotent.
     // stop() cancels the downloads in flight and lets go of the storage node,
-    // without stopping it. getState() returns "stopped" or "running".
+    // without stopping it. getState() returns "stopped" or "running", and
+    // stateChanged reports each change.
     LogosMap  start();
     LogosMap  stop();
     std::string getState();
@@ -110,10 +111,16 @@ public:
     // holds the QtRO source thread for the whole download, and ModuleProxy
     // always QUEUES event emission onto it, so every sample would land in one
     // burst at the end. Don't revert that setting without removing this event.
+    //
+    // stateChanged fires when start() or stop() changes the state, with the
+    // new one: "running" or "stopped", what getState() answers from then on.
+    // A call that changes nothing (start() while running) emits nothing, and
+    // neither does an unload.
 logos_events:
     void catalogChanged();
     void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total);
     void downloadDone(const std::string& packageName, const std::string& source);
+    void stateChanged(const std::string& state);
 
 protected:
     // Refuses new calls, stops events and fails the storage waits, then

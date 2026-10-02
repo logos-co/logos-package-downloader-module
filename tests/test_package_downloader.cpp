@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 // ── Repository management ────────────────────────────────────────────────
 
@@ -548,6 +549,41 @@ LOGOS_TEST(stop_cancels_a_download_in_flight) {
 
     LOGOS_ASSERT_FALSE(result.contains("path"));
     LOGOS_ASSERT_CONTAINS(result.value("error", ""), std::string("download cancelled"));
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+}
+
+LOGOS_TEST(start_and_stop_report_each_state_change) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    impl.start();
+    impl.start();   // already running: nothing changes
+    impl.stop();
+    impl.stop();    // already stopped: nothing changes
+    impl.start();
+
+    std::vector<std::string> states;
+    for (const auto& e : events.all("stateChanged")) states.push_back(e.data);
+
+    LOGOS_ASSERT_EQ(states.size(), static_cast<size_t>(3));
+    LOGOS_ASSERT_EQ(states[0], std::string("running"));
+    LOGOS_ASSERT_EQ(states[1], std::string("stopped"));
+    LOGOS_ASSERT_EQ(states[2], std::string("running"));
+}
+
+// The host tears the event path down: an unload reports nothing.
+LOGOS_TEST(unload_reports_no_state_change) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl._logosCoreAboutToUnload_();
+    impl.stop();
+    impl.start();
+
+    LOGOS_ASSERT_EQ(events.all("stateChanged").size(), static_cast<size_t>(1));
     LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
 }
 
