@@ -101,22 +101,19 @@ sections:
   - title: "Starting the downloader starts the node"
     step: true
     steps:
-      - title: "Loading the downloader starts nothing"
+      - title: "The daemon starts the downloader"
         text: |
-          The daemon loads the storage module and the downloader at start. The
-          downloader waits for a consumer, so the node is still down.
-        run: |
-          set -eu
-          ./logosctl/bin/logosctl --config-dir ./session call package_downloader getState
-          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
-        code_block: |
-          logosctl call package_downloader getState
-          logosctl call storage_module isRunning
+          The daemon loads the storage module and the downloader at start, and
+          starts the downloader as soon as it loads it, as Basecamp does.
+        run: './logosctl/bin/logosctl --config-dir ./session call package_downloader getState'
+        code_block: 'logosctl call package_downloader getState'
         expect_contains:
-          - '"result":"stopped"'
-          - '"result":false'
+          - '"result":"running"'
 
-      - title: "Start the downloader"
+      - title: "Starting it again changes nothing"
+        text: |
+          `start()` is idempotent, so a consumer that needs the downloader, after
+          a reload for instance, can call it without checking first.
         run: './logosctl/bin/logosctl --config-dir ./session call package_downloader start'
         code_block: 'logosctl call package_downloader start'
         expect_contains:
