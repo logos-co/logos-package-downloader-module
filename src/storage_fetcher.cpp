@@ -13,12 +13,6 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-const lgpd::FetchResult unloading{false, "the module is unloading"};
-
-}
-
 StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDone onStorageDownloadDone,
                                OnStorageDownloadProgress onStorageDownloadProgress,
                                DownloadCancel downloadCancel, DownloadManifest downloadManifest,
@@ -86,17 +80,17 @@ void StorageFetcher::subscribe() {
     m_unsubscribeManifest = std::move(manifest);
 }
 
-void StorageFetcher::cancelPendingDownloads() {
+void StorageFetcher::cancelPendingDownloads(const std::string& reason) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    m_unloading = true;
+    m_cancelled = reason;
 
     for (auto& [cid, pending] : m_pending) {
-        pending.result.set_value(unloading);
+        pending.result.set_value({false, reason});
     }
 
     for (auto& [cid, manifest] : m_pendingManifests) {
-        manifest.set_value(unloading);
+        manifest.set_value({false, reason});
     }
 
     m_pending.clear();
@@ -112,8 +106,8 @@ lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
             return {false, "not subscribed to storage_module's storageDownloadManifestDone event"};
         }
 
-        if (m_unloading) {
-            return unloading;
+        if (!m_cancelled.empty()) {
+            return {false, m_cancelled};
         }
 
         if (m_pendingManifests.count(cid) > 0) {
@@ -229,8 +223,8 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
         // Get a mutex for m_pending
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        if (m_unloading) {
-            return unloading;
+        if (!m_cancelled.empty()) {
+            return {false, m_cancelled};
         }
 
         if (m_pending.count(cid) > 0) {

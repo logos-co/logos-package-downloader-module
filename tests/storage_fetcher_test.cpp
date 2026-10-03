@@ -367,6 +367,18 @@ LOGOS_TEST(getToFile_downloads_nothing_after_cancelPendingDownloads) {
     LOGOS_ASSERT_FALSE(downloaded);
 }
 
+LOGOS_TEST(cancelPendingDownloads_reports_its_reason) {
+    Manifest manifest;
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    fetcher.cancelPendingDownloads("the downloader was stopped");
+    lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_EQ(r.error, std::string("the downloader was stopped"));
+}
+
 LOGOS_TEST(destroying_the_fetcher_cancels_its_subscriptions) {
     int cancelled = 0;
 

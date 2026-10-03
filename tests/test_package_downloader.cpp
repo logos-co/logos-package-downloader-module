@@ -19,12 +19,14 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 // ── Repository management ────────────────────────────────────────────────
 
 LOGOS_TEST(addRepository_success_when_lib_returns_empty) {
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     // Unset return → mock yields "" → success.
     LogosMap r = impl.addRepository("https://example.com/logos-repo.json");
@@ -37,6 +39,7 @@ LOGOS_TEST(addRepository_failure_surfaces_error) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("addRepository").returns("not a valid repo URL");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.addRepository("nonsense");
     LOGOS_ASSERT_FALSE(r["success"].get<bool>());
@@ -46,6 +49,7 @@ LOGOS_TEST(addRepository_failure_surfaces_error) {
 LOGOS_TEST(removeRepository_forwards_and_succeeds) {
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.removeRepository("https://example.com/logos-repo.json");
     LOGOS_ASSERT_TRUE(r["success"].get<bool>());
@@ -55,6 +59,7 @@ LOGOS_TEST(removeRepository_forwards_and_succeeds) {
 LOGOS_TEST(setRepositoryEnabled_forwards_and_succeeds) {
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.setRepositoryEnabled("https://example.com/logos-repo.json", false);
     LOGOS_ASSERT_TRUE(r["success"].get<bool>());
@@ -68,6 +73,7 @@ LOGOS_TEST(listRepositories_parses_json_array) {
         R"([{"url":"u1","enabled":true,"isDefault":true,"name":"default"},
             {"url":"u2","enabled":false,"isDefault":false,"name":"mine"}])");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList list = impl.listRepositories();
     LOGOS_ASSERT_EQ(list.size(), static_cast<size_t>(2));
@@ -81,6 +87,7 @@ LOGOS_TEST(listRepositories_parses_json_array) {
 LOGOS_TEST(refreshCatalog_success_when_lib_returns_empty) {
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.refreshCatalog();
     LOGOS_ASSERT_TRUE(r["success"].get<bool>());
@@ -91,6 +98,7 @@ LOGOS_TEST(refreshCatalog_failure_surfaces_error) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("refreshCatalogs").returns("repo X unreachable");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.refreshCatalog();
     LOGOS_ASSERT_FALSE(r["success"].get<bool>());
@@ -104,6 +112,7 @@ LOGOS_TEST(getCatalog_parses_merged_json) {
     t.mockCFunction("getCatalogJson").returns(
         R"([{"name":"wallet_module","versions":[{"manifest":{"version":"1.0.0"}}]}])");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList catalog = impl.getCatalog();
     LOGOS_ASSERT_EQ(catalog.size(), static_cast<size_t>(1));
@@ -114,6 +123,7 @@ LOGOS_TEST(getCatalog_parses_merged_json) {
 LOGOS_TEST(getCatalog_empty_when_unset) {
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList catalog = impl.getCatalog();   // mock default "[]"
     LOGOS_ASSERT_EQ(catalog.size(), static_cast<size_t>(0));
@@ -124,6 +134,7 @@ LOGOS_TEST(getCatalogForRepo_parses_scoped_json) {
     t.mockCFunction("getCatalogForRepoJson").returns(
         R"([{"name":"chat_module"}])");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList catalog = impl.getCatalogForRepo("my-catalog");
     LOGOS_ASSERT_EQ(catalog.size(), static_cast<size_t>(1));
@@ -139,6 +150,7 @@ LOGOS_TEST(resolveDependencies_passes_resolver_output_through) {
         R"([{"name":"dep_a","version":"1.0.0","rootHash":"h1","repositoryUrl":"r","url":"u","topLevel":false},
             {"name":"chat_module","version":"2.0.0","rootHash":"h2","repositoryUrl":"r","url":"u2","topLevel":true}])");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList plan = impl.resolveDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_EQ(plan.size(), static_cast<size_t>(2));
@@ -155,6 +167,7 @@ LOGOS_TEST(resolveDependencies_malformed_output_attributes_error_to_requested) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("resolveDependenciesJson").returns("{ this is not valid json");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList plan = impl.resolveDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_EQ(plan.size(), static_cast<size_t>(1));
@@ -168,6 +181,7 @@ LOGOS_TEST(downloadPinned_success_returns_path) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
     LOGOS_ASSERT_EQ(r["name"].get<std::string>(), std::string("wallet_module"));
@@ -183,6 +197,7 @@ LOGOS_TEST(downloadPinned_reports_the_transport_that_served_the_package) {
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
     t.mockCFunction("downloadSource").returns("logos:logos.test:zDvZRwzm3g3mPcYu1NmDKV5jCccw4FZ83XKyu85AjSCg7gH7zQdL");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
     LOGOS_ASSERT_EQ(r["source"].get<std::string>(),
@@ -193,6 +208,7 @@ LOGOS_TEST(downloadPinned_failure_returns_error_row) {
     auto t = LogosTestContext("package_downloader");
     // Unset downloadPackage → "" → empty path → failure.
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.downloadPinned("", "wallet_module", "", "");
     LOGOS_ASSERT_EQ(r["name"].get<std::string>(), std::string("wallet_module"));
@@ -208,6 +224,7 @@ LOGOS_TEST(downloadResolvedDependencies_downloads_each_resolved_entry) {
         R"([{"name":"chat_module","version":"2.0.0","rootHash":"h2","repositoryUrl":"r"}])");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/chat_module.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList results = impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_EQ(results.size(), static_cast<size_t>(1));
@@ -224,6 +241,7 @@ LOGOS_TEST(downloadResolvedDependencies_attributes_unnamed_resolver_error) {
     t.mockCFunction("resolveDependenciesJson").returns(
         R"([{"error":"no candidate matches 'chat_module'"}])");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList results = impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_EQ(results.size(), static_cast<size_t>(1));
@@ -237,6 +255,7 @@ LOGOS_TEST(downloadResolvedDependencies_malformed_output_attributes_error_per_re
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("resolveDependenciesJson").returns("not json at all");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosList results = impl.downloadResolvedDependencies(
         R"([{"name":"a"},{"name":"b"}])", "");
@@ -258,6 +277,7 @@ LOGOS_TEST(downloadPinned_emits_progress_events_for_the_package) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
 
@@ -273,6 +293,7 @@ LOGOS_TEST(downloadPinned_emits_downloadDone_with_the_source) {
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
     t.mockCFunction("downloadSource").returns("https://example.com/wallet_module-1.0.0.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
 
@@ -288,6 +309,7 @@ LOGOS_TEST(downloadPinned_emits_no_downloadDone_when_the_download_fails) {
     // The real lib writes the source before checks that can still fail.
     t.mockCFunction("downloadSource").returns("https://example.com/wallet_module-1.0.0.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     impl.downloadPinned("", "wallet_module", "", "");
 
@@ -301,6 +323,7 @@ LOGOS_TEST(downloadPinned_emits_progress_even_when_the_download_fails) {
     auto t = LogosTestContext("package_downloader");
     // Unset downloadPackage → "" → empty path → failure.
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.downloadPinned("", "wallet_module", "", "");
     LOGOS_ASSERT_TRUE(r.contains("error"));
@@ -317,6 +340,7 @@ LOGOS_TEST(downloadResolvedDependencies_attributes_progress_per_package) {
         R"({"name":"waku_module","version":"1.0.0","rootHash":"h1","repositoryUrl":"r"}])");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/pkg.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
 
@@ -337,6 +361,7 @@ LOGOS_TEST(downloadResolvedDependencies_emits_downloadDone_with_the_source) {
     t.mockCFunction("downloadPackage").returns("/tmp/dl/pkg.lgx");
     t.mockCFunction("downloadSource").returns("https://example.com/pkg.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
 
@@ -354,6 +379,7 @@ LOGOS_TEST(downloadResolvedDependencies_emits_no_progress_when_resolution_fails)
     t.mockCFunction("resolveDependenciesJson").returns(
         R"([{"error":"no candidate matches 'chat_module'"}])");
     PackageDownloaderImpl impl;
+    impl.start();
 
     impl.downloadResolvedDependencies(R"([{"name":"chat_module"}])", "");
     LOGOS_ASSERT_FALSE(events.has("downloadProgress"));
@@ -388,15 +414,47 @@ StorageNode fakeNode(bool& started) {
 
 } // namespace
 
-// Before any call is served: setStorageFetcher then never waits on the lib's
-// lock, which a first catalog fetch holds across the network.
-LOGOS_TEST(context_ready_installs_the_storage_fetcher) {
+// Loading the module touches neither the config nor storage_module.
+LOGOS_TEST(context_ready_starts_nothing) {
     auto t = LogosTestContext("package_downloader");
+    fireStorageReady = nullptr;
     PackageDownloaderImpl impl;
 
     makeContextReady(impl);
 
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("PackageDownloaderLib_ctor"));
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("setStorageFetcher"));
+    LOGOS_ASSERT_FALSE(static_cast<bool>(fireStorageReady));
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+}
+
+// Before any call is served: setStorageFetcher then never waits on the lib's
+// lock, which a first catalog fetch holds across the network.
+LOGOS_TEST(start_installs_the_storage_fetcher) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    makeContextReady(impl);
+    impl.start();
+
     LOGOS_ASSERT_TRUE(t.cFunctionCalled("setStorageFetcher"));
+}
+
+LOGOS_TEST(storage_ready_after_stop_starts_nothing) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    impl.stop();
+
+    fireStorageReady();
+
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(started);
 }
 
 LOGOS_TEST(storage_ready_starts_the_node) {
@@ -406,6 +464,7 @@ LOGOS_TEST(storage_ready_starts_the_node) {
     fakeStorageNode = fakeNode(started);
     PackageDownloaderImpl impl;
     makeContextReady(impl);
+    impl.start();
 
     fireStorageReady();
 
@@ -423,6 +482,7 @@ LOGOS_TEST(storage_events_are_subscribed_on_the_first_ready) {
     fakeFetcherSubscriptions = 0;
     PackageDownloaderImpl impl;
     makeContextReady(impl);
+    impl.start();
 
     const int beforeReady = fakeFetcherSubscriptions;
     fireStorageReady();
@@ -432,11 +492,119 @@ LOGOS_TEST(storage_events_are_subscribed_on_the_first_ready) {
     LOGOS_ASSERT_EQ(fakeFetcherSubscriptions, 3);
 }
 
+// ── Lifecycle ────────────────────────────────────────────────────────────
+
+LOGOS_TEST(a_call_before_start_is_refused) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+
+    LOGOS_ASSERT_CONTAINS(r.value("error", ""), std::string("not started"));
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("downloadPackage"));
+    LOGOS_ASSERT_FALSE(impl.addRepository("https://example.com/r.json")["success"].get<bool>());
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("addRepository"));
+}
+
+LOGOS_TEST(start_runs_the_downloader_once) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+    LOGOS_ASSERT_TRUE(impl.start()["success"].get<bool>());
+    LOGOS_ASSERT_TRUE(impl.start()["success"].get<bool>());
+
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("running"));
+    LOGOS_ASSERT_EQ(t.cFunctionCallCount("PackageDownloaderLib_ctor"), 1);
+}
+
+LOGOS_TEST(stop_refuses_later_calls_and_start_serves_them_again) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    LOGOS_ASSERT_TRUE(impl.stop()["success"].get<bool>());
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("PackageDownloaderLib_dtor"));
+    LOGOS_ASSERT_FALSE(impl.addRepository("https://example.com/r.json")["success"].get<bool>());
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("addRepository"));
+
+    impl.start();
+
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("running"));
+    LOGOS_ASSERT_TRUE(impl.addRepository("https://example.com/r.json")["success"].get<bool>());
+}
+
+LOGOS_TEST(stop_cancels_a_download_in_flight) {
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    duringDownloadPackage = [&]() { impl.stop(); };
+
+    const LogosMap result =
+        impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    duringDownloadPackage = nullptr;
+
+    LOGOS_ASSERT_FALSE(result.contains("path"));
+    LOGOS_ASSERT_CONTAINS(result.value("error", ""), std::string("download cancelled"));
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+}
+
+LOGOS_TEST(start_and_stop_report_each_state_change) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    impl.start();
+    impl.start();   // already running: nothing changes
+    impl.stop();
+    impl.stop();    // already stopped: nothing changes
+    impl.start();
+
+    std::vector<std::string> states;
+    for (const auto& e : events.all("stateChanged")) states.push_back(e.data);
+
+    LOGOS_ASSERT_EQ(states.size(), static_cast<size_t>(3));
+    LOGOS_ASSERT_EQ(states[0], std::string("running"));
+    LOGOS_ASSERT_EQ(states[1], std::string("stopped"));
+    LOGOS_ASSERT_EQ(states[2], std::string("running"));
+}
+
+// The host tears the event path down: an unload reports nothing.
+LOGOS_TEST(unload_reports_no_state_change) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl._logosCoreAboutToUnload_();
+    impl.stop();
+    impl.start();
+
+    LOGOS_ASSERT_EQ(events.all("stateChanged").size(), static_cast<size_t>(1));
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+}
+
+LOGOS_TEST(start_after_aboutToUnload_is_refused) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    impl._logosCoreAboutToUnload_();
+
+    LogosMap r = impl.start();
+
+    LOGOS_ASSERT_FALSE(r["success"].get<bool>());
+    LOGOS_ASSERT_EQ(r.value("error", ""), std::string("the module is unloading"));
+    LOGOS_ASSERT_EQ(impl.getState(), std::string("stopped"));
+}
+
 // ── Unload ───────────────────────────────────────────────────────────────
 
 LOGOS_TEST(a_call_after_aboutToUnload_is_refused) {
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LOGOS_ASSERT_TRUE(impl._logosCoreAboutToUnload_() == LogosShutdown::Synchronous);
 
@@ -453,6 +621,7 @@ LOGOS_TEST(a_download_in_flight_is_cancelled_after_aboutToUnload) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
     PackageDownloaderImpl impl;
+    impl.start();
 
     int finished = 0;
     impl._logosCoreSetUnloadFinished_([&finished]() { ++finished; });
@@ -478,6 +647,7 @@ LOGOS_TEST(a_call_in_flight_keeps_the_lib_past_the_destructor) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("downloadPackage").returns("/tmp/dl/wallet_module-1.0.0.lgx");
     auto* impl = new PackageDownloaderImpl();
+    impl->start();
 
     bool freedUnderTheCall = true;
     duringDownloadPackage = [&]() {
@@ -499,6 +669,7 @@ LOGOS_TEST(setDownloadSource_persists_the_source_and_emits_catalogChanged) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.setDownloadSource("logos");
 
@@ -512,6 +683,7 @@ LOGOS_TEST(setDownloadSource_refuses_an_unknown_source) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.setDownloadSource("ftp");
 
@@ -527,6 +699,7 @@ LOGOS_TEST(setDownloadSource_to_the_current_source_emits_nothing) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.setDownloadSource("any");
 
@@ -539,6 +712,7 @@ LOGOS_TEST(setDownloadSource_surfaces_a_save_error) {
     auto t = LogosTestContext("package_downloader");
     t.mockCFunction("setDownloadSource").returns("cannot write config file: /x");
     PackageDownloaderImpl impl;
+    impl.start();
 
     LogosMap r = impl.setDownloadSource("http");
 

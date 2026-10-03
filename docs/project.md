@@ -61,7 +61,8 @@ logos-package-downloader-module/
 │   ├── package_downloader_impl.h       # Bridge interface: PackageDownloaderImpl
 │   │                                   #   (inherits LogosModuleContext), method decls
 │   │                                   #   (one per line — codegen requirement),
-│   │                                   #   logos_events: catalogChanged, onContextReady()
+│   │                                   #   start/stop/getState, logos_events: catalogChanged,
+│   │                                   #   downloadProgress, downloadDone, stateChanged
 │   └── package_downloader_impl.cpp     # Implementation: holds lgpd::PackageDownloaderLib*,
 │                                       #   JSON parsing, {success,error} shaping,
 │                                       #   pinnedDownload helper, exception-fenced
@@ -155,8 +156,8 @@ dependencies; it links the `package_downloader` external library instead.
 **Files:** `src/package_downloader_impl.h`, `src/package_downloader_impl.cpp`
 
 The single bridge class. Inherits `LogosModuleContext` (the opt-in SDK mixin that exposes
-`modulePath()` / `instanceId()` / `instancePersistencePath()` and the `onContextReady()`
-hook). Holds one shared `lgpd::PackageDownloaderLib` and forwards method calls into the
+`modulePath()` / `instanceId()` / `instancePersistencePath()`). Between `start()` and
+`stop()` it holds one shared `lgpd::PackageDownloaderLib` and forwards method calls into the
 library / its `RepositoryRegistry`, translating between JSON strings and `LogosList` /
 `LogosMap`.
 
@@ -185,7 +186,10 @@ single-line declaration in the header into a provider method plus an auto-genera
 | `catalogChanged` | `void catalogChanged()` *(under `logos_events:`)* | Event signal fired on success from `addRepository` / `removeRepository` / `setRepositoryEnabled`, and from `setDownloadSource` when the source changes. Subscribers re-fetch via `listRepositories()` / `getCatalog()` |
 | `downloadProgress` | `void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total)` *(under `logos_events:`)* | Event fired while a package downloads, with the bytes received so far and the total size. `total` is 0 when the size is unknown |
 | `downloadDone` | `void downloadDone(const std::string& packageName, const std::string& source)` *(under `logos_events:`)* | Event fired when a package has downloaded, from `downloadPinned` and `downloadResolvedDependencies`. `source` is the HTTPS URL, or `logos:<network>:<cid>` when the storage node served the package |
-| `onContextReady` | `void onContextReady() override` *(protected)* | `LogosModuleContext` lifecycle hook. Fires after the host populates `modulePath()` / `instanceId()` / `instancePersistencePath()` and before any method dispatch; re-anchors the lib's `repositories.json` under `instancePersistencePath()` (no-op when that path is empty, keeping the XDG fallback) |
+| `start` | `LogosMap start()` | Build the library on `<instancePersistencePath>/repositories.json` (the XDG fallback outside a host), install the storage fetcher and watch for `storage_module`. Returns `{success, error?}`; idempotent. Every other method is refused with `the downloader is not started` before it |
+| `stop` | `LogosMap stop()` | Drop the library, cancel the storage watch and fail the downloads in flight. The storage node keeps running. Returns `{success, error?}` |
+| `getState` | `std::string getState()` | `"stopped"` or `"running"` |
+| `stateChanged` | `void stateChanged(const std::string& state)` *(under `logos_events:`)* | Event fired when `start()` or `stop()` changes the state, with the new one (`"running"` or `"stopped"`). Not fired by a call that changes nothing, nor by an unload |
 
 ### How it works internally
 
@@ -205,13 +209,18 @@ single-line declaration in the header into a provider method plus an auto-genera
   package rather than crashing the whole batch — so a UI that keys install/Failed badges
   by package name always gets a matching update. An unattributed resolver error for a
   single requested package is attributed to that package.
-- **Storage node lifecycle.** The module starts the node itself. `onContextReady()`
+- **Lazy start.** Loading the module does nothing. `start()` builds a `Run` (library,
+  storage fetcher, storage watch); `stop()` drops it and marks it stopped, which cancels
+  its downloads. A call holds its own share of the `Run`, so one in flight finishes on
+  the library it started with. `start()` and `stop()` are serialised by a mutex the main
+  thread never takes: they run on workers, and subscribing may wait for the main thread.
+- **Storage node lifecycle.** `start()` starts the node. It
   subscribes to `modules_state.module_state_changed` and then asks `is_ready` once, since
   a transition that already happened is not replayed; either path calls `startStorage()`,
   which runs `loadConfigOrDefault` → `init` → `start` on `storage_module` with async calls.
   The node start runs on every `ready`, so a `storage_module` that restarted gets its node
   back; a second start is refused by `storage_module` itself. The storage fetcher is built
-  once and installed in the library in `onContextReady()`, before any call is served:
+  per `start()` and installed in the library before any call is served:
   `setStorageFetcher` takes the library's lock, which a first catalog fetch holds across
   the network. It subscribes to `storage_module`'s events on the first `ready`, so a host
   without the module keeps no pending subscriptions. The fetcher checks the storage module
@@ -225,11 +234,11 @@ single-line declaration in the header into a provider method plus an auto-genera
   files when cancelled. A failed storage wait may fall back to HTTPS while the module is
   running; once unload begins, the pending call stops without emitting events. Each call
   holds its own share of the library until it returns.
-- **Persistence path anchoring.** The constructor seeds the library with an XDG-style
-  default config path (`$XDG_CONFIG_HOME/logos/package-downloader/repositories.json`,
-  falling back to `$HOME/.config/...` or a temp dir) so callers that bypass the framework
-  (the `lgpd` CLI, unit tests) still get a working downloader. When a host drives the
-  module, `onContextReady()` re-points it at `<instancePersistencePath>/repositories.json`.
+- **Persistence path anchoring.** `start()` builds the library on
+  `<instancePersistencePath>/repositories.json`. When no host provisions persistence (the
+  `lgpd` CLI, unit tests) it uses an XDG-style default
+  (`$XDG_CONFIG_HOME/logos/package-downloader/repositories.json`, falling back to
+  `$HOME/.config/...` or a temp dir), and wires no storage fetcher.
 
 ## Building and Testing
 
@@ -373,10 +382,8 @@ lgpm --modules-dir ./modules install --dir ./packages/
   `getPackages(tag[, category])`, `getCategories(tag)`, `downloadPackage(tag, name)`,
   `downloadPackages(tag, names)`, and the old `resolveDependencies(tag, names)` were removed
   when the QML UI migrated to the multi-repo API. Only the multi-repo surface remains.
-- **No LogosAPI accessor for the module data dir.** The impl synthesises an XDG-style
-  default config path in the constructor and re-anchors to the host path in
-  `onContextReady()`. When no host provisions persistence (CLI / unit tests) it stays on
-  the XDG fallback.
+- **No LogosAPI accessor for the module data dir.** `start()` uses the host path, or
+  synthesises an XDG-style default when no host provisions persistence (CLI / unit tests).
 - **Synchronous library calls.** All `lgpd` library calls are synchronous; non-blocking
   behavior depends entirely on the Logos runtime auto-generating `*Async` IPC wrappers.
 - **The default repository cannot be removed.** It is hardcoded by the underlying library;

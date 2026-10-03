@@ -14,6 +14,23 @@ All methods are accessible via LogosAPI from other modules and UI
 plugins. They're synchronous in the library; the Logos runtime
 auto-generates `*Async` wrappers for IPC, so callers never block.
 
+### Lifecycle
+
+Loading the module does nothing: it reads no configuration and leaves
+`storage_module` alone. A consumer calls `start()` before its first call, and
+every other method is refused with `the downloader is not started` until then
+(the list getters answer empty).
+
+| Method | Return | Description |
+|--------|--------|-------------|
+| `start()` | `QVariantMap` | Load the repository configuration and, when `storage_module` is loaded, start the storage node. Idempotent: a second call succeeds and does nothing |
+| `stop()` | `QVariantMap` | Cancel the downloads in flight and let go of the storage node, without stopping it: it is shared |
+| `getState()` | `QString` | `"stopped"` or `"running"` |
+
+`stateChanged(state)` is emitted when `start()` or `stop()` changes the state,
+with the new one (`"running"` or `"stopped"`). A call that changes nothing emits
+nothing, and neither does an unload.
+
 ### Repositories
 
 A repository is the URL of a `logos-repo.json`. The built-in default repo
@@ -48,6 +65,9 @@ under the module's data directory. Mutating calls return
 
 ```cpp
 LogosModules logos(logosAPI);
+
+// Once, before the first call
+logos.package_downloader.start();
 
 // Add a repository, then browse the merged catalog
 logos.package_downloader.addRepository("https://example.com/my/logos-repo.json");
@@ -104,7 +124,7 @@ Direct flake inputs (`flake.nix`):
 
 - `logos-module-builder` — provides `mkLogosModule`, the Qt plugin glue generator, and brings in `logos-cpp-sdk` + `logos-module` transitively.
 - `logos-package-downloader` — the underlying C++ download library (plain C++ + libcurl), staged into `lib/` at build time and linked into the plugin.
-- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` optional dependency; the downloader configures and starts the node (`startStorage`).
+- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` optional dependency; `start()` configures and starts the node (`startStorage`).
 - `modules_state` — tells the downloader when `storage_module` is ready, through `modules().modules_state`. Also an optional dependency in `metadata.json`.
 
 Resolved transitively through the builder:
