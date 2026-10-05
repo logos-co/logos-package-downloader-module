@@ -179,12 +179,17 @@ sections:
           cat Caddyfile
         check_file: "Caddyfile"
 
+      - title: "Build caddy"
+        run: "nix build nixpkgs#caddy -o caddy"
+        code_block: "nix build nixpkgs#caddy -o caddy"
+        check_file: "caddy/bin/caddy"
+
       - title: "Start the HTTPS server"
         run: |
           set -eu
 
           mkdir -p www
-          nix run nixpkgs#caddy -- run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
+          ./caddy/bin/caddy run --config Caddyfile --adapter caddyfile > caddy.log 2>&1 &
 
           # Keep the process ID so we can stop it later
           echo $! > caddy.pid
@@ -704,12 +709,12 @@ sections:
           logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
         check_file: "storage-again-path.txt"
 
-  - title: "Shut down during a storage download"
+  - title: "Fall back to HTTPS when the storage download fails"
     step: true
     text: |
-      The downloader cannot cancel a download in progress. Stopping the daemon
-      while one waits must still end cleanly: the daemon exits, and nothing
-      crashes.
+      The storage module is loaded and the node runs, but no node holds the
+      package. The downloader tries storage first. When storage fails, it
+      downloads from the HTTPS URL.
     steps:
       - title: "Leave the package with no provider"
         text: |
@@ -722,6 +727,86 @@ sections:
           rm -f "$(cat storage-again-path.txt)"
         code_block: |
           logosctl call storage_module remove "$(cat cid.txt)"
+
+      - title: "Make the HTTPS URL live again"
+        run: |
+          set -eu
+          cp downloader-lgx/*.lgx www/package_downloader.lgx
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt https://127.0.0.1:8443/package_downloader.lgx
+        code_block: |
+          cp downloader-lgx/*.lgx www/package_downloader.lgx
+        expect_contains:
+          - "200"
+
+      - title: "Download the package"
+        text: |
+          The storage attempt can last up to 60 seconds. The `downloadDone`
+          event reports the result.
+        run: |
+          set -eu
+
+          ./logosctl/bin/logosctl --config-dir ./session --json watch package_downloader \
+            > fallback-events.txt 2>&1 &
+
+          echo $! > watch.pid
+
+          # The subscription has to reach the daemon before the download starts.
+          sleep 2
+
+          any_version=""
+          any_root_hash=""
+
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader downloadPinned "doctest-catalog" package_downloader "$any_version" "$any_root_hash" \
+            > download-fallback.json 2>&1 &
+
+          # The storage fetcher waits 60 seconds at most for the manifest.
+          # Take 10 seconds as buffer.
+          for _ in $(seq 70); do
+            grep -q downloadDone fallback-events.txt && break
+            sleep 1
+          done
+
+          kill "$(cat watch.pid)"
+
+          cat fallback-events.txt
+        code_block: |
+          logosctl --json watch package_downloader > fallback-events.txt &
+
+          any_version=""
+          any_root_hash=""
+          logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "$any_version" "$any_root_hash" &
+        expect_contains:
+          - "downloadDone"
+
+      - title: "Check that the package came from HTTPS"
+        run: |
+          jq -es 'map(select(.event == "downloadDone")) | last
+                  | .data.arg1 == "https://127.0.0.1:8443/package_downloader.lgx"' fallback-events.txt
+        code_block: |
+          jq -es 'map(select(.event == "downloadDone")) | last
+                  | .data.arg1 == "https://127.0.0.1:8443/package_downloader.lgx"' fallback-events.txt
+        expect_contains:
+          - "true"
+
+  - title: "Shut down during a storage download"
+    step: true
+    text: |
+      The downloader cannot cancel a download in progress. Stopping the daemon
+      while one waits must still end cleanly: the daemon exits, and nothing
+      crashes.
+    steps:
+      - title: "Take the HTTPS URL offline again"
+        text: |
+          The package still has no provider: the downloader waits again for a
+          manifest that no node can give.
+        run: |
+          set -eu
+          rm -f www/package_downloader.lgx "$(cat storage-again-path.txt)"
+          curl -s -o /dev/null -w "%{http_code}\n" --cacert localhost.crt https://127.0.0.1:8443/package_downloader.lgx
+        code_block: |
+          rm www/package_downloader.lgx
+        expect_contains:
+          - "404"
 
       - title: "Stop the daemon during the download"
         run: |
