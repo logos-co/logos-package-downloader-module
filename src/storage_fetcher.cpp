@@ -1,6 +1,7 @@
 #include "storage_fetcher.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -175,12 +176,15 @@ lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) 
 
 bool StorageFetcher::canHandle(const std::string& url) const {
     const std::string network = m_network();
+    const bool handled = !network.empty() && url.rfind("logos:" + network + ":", 0) == 0;
 
-    if (network.empty()) {
-        return false;
+    // Otherwise the lib skips Logos Storage without a trace.
+    if (!handled && url.rfind("logos:", 0) == 0) {
+        fprintf(stderr, "StorageFetcher: skipping %s: the storage node is on network '%s'\n",
+                url.c_str(), network.empty() ? "<unknown>" : network.c_str());
     }
 
-    return url.rfind("logos:" + network + ":", 0) == 0;
+    return handled;
 }
 
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::string& path) {
@@ -189,6 +193,18 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
 
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::string& path,
                                             const lgpd::ProgressFn& onProgress) {
+    lgpd::FetchResult result = fetchToFile(url, path, onProgress);
+
+    if (!result.ok) {
+        fprintf(stderr, "StorageFetcher: storage download of %s failed: %s\n", url.c_str(),
+                result.error.c_str());
+    }
+
+    return result;
+}
+
+lgpd::FetchResult StorageFetcher::fetchToFile(const std::string& url, const std::string& path,
+                                              const lgpd::ProgressFn& onProgress) {
     // url is logos:<network>:<CID>, the network was checked by canHandle.
     const std::string cid = url.substr(url.rfind(':') + 1);
 

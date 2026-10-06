@@ -60,6 +60,8 @@ public:
 
 private:
     lgpd::FetchResult fetchManifest(const std::string& cid);
+    lgpd::FetchResult fetchToFile(const std::string& url, const std::string& path,
+                                  const lgpd::ProgressFn& onProgress);
 
     void onDownloadDone(const std::string& payload);
     void onDownloadProgress(const std::string& payload);
