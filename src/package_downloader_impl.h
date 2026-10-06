@@ -94,8 +94,11 @@ public:
     std::string getState();
 
     // catalogChanged fires on success from addRepository, removeRepository,
-    // setRepositoryEnabled, and setDownloadSource when the source changes —
-    // Subscribers re-fetch via listRepositories() / getCatalog().
+    // setRepositoryEnabled, and setDownloadSource when the source changes.
+    // It also fires when the catalog the lib serves moved under a call: a
+    // refreshCatalog() that fetched something different, or any call that
+    // read an index whose earlier fetch failed. Subscribers re-fetch via
+    // listRepositories() / getCatalog(); everyone then holds the same copy.
     //
     // downloadProgress fires per package while its bytes are on the wire, in
     // install order, already rate-limited by the lib. `total` is 0 when
@@ -141,6 +144,10 @@ private:
     struct CallState;
 
     void startStorage(const std::shared_ptr<Run>& run);
+
+    // Emits catalogChanged when the lib's catalogRevision() moved past the
+    // one last announced.
+    void announceCatalogRevision(const PendingLibCall& call);
 
     std::shared_ptr<CallState> m_calls;
 

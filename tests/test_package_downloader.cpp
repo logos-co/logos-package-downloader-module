@@ -105,6 +105,44 @@ LOGOS_TEST(refreshCatalog_failure_surfaces_error) {
     LOGOS_ASSERT_EQ(r["error"].get<std::string>(), std::string("repo X unreachable"));
 }
 
+// Basecamp and the Package Manager UI each keep a copy of the catalog; a
+// refresh by one has to reach the other.
+LOGOS_TEST(refreshCatalog_that_moved_the_catalog_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("catalogRevision").returns("1");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl.refreshCatalog();
+    LOGOS_ASSERT_TRUE(events.has("catalogChanged"));
+}
+
+LOGOS_TEST(refreshCatalog_that_fetched_the_same_catalog_emits_nothing) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl.refreshCatalog();
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
+// An index that failed earlier can be read by any call; the first call to
+// see the new revision announces it, the rest stay quiet.
+LOGOS_TEST(each_catalog_revision_is_announced_once) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("catalogRevision").returns("1");
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl.getCatalog();
+    impl.resolveDependencies(R"(["wallet_module"])", "");
+    impl.refreshCatalog();
+    LOGOS_ASSERT_EQ(events.all("catalogChanged").size(), static_cast<size_t>(1));
+}
+
 // ── Catalog ──────────────────────────────────────────────────────────────
 
 LOGOS_TEST(getCatalog_parses_merged_json) {
