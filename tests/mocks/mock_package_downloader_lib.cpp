@@ -16,6 +16,7 @@
 //   downloadPackage → "" (empty path == download failure, per the impl's
 //     pinnedDownload contract — a success test configures a path)
 //   downloadSource → "" (source used to download the package)
+//   catalogRevision → 0 (a test sets it to say the lib's catalog moved)
 
 #include <logos_clib_mock.h>
 #include <package_downloader_lib.h>   // resolves to tests/stubs/package_downloader_lib.h
@@ -76,6 +77,10 @@ std::string PackageDownloaderLib::getCatalogForRepoJson(const std::string& /*url
 std::string PackageDownloaderLib::refreshCatalogs() {
     LOGOS_CMOCK_RECORD("refreshCatalogs");
     return mockStr("refreshCatalogs", "");   // empty == success
+}
+
+uint64_t PackageDownloaderLib::catalogRevision() const {
+    return std::stoull(mockStr("catalogRevision", "0"));
 }
 
 std::string PackageDownloaderLib::downloadPackage(const std::string& repoUrlOrName,

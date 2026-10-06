@@ -130,6 +130,9 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
 struct PackageDownloaderImpl::Run {
     std::shared_ptr<lgpd::PackageDownloaderLib> lib;
 
+    // The lib's catalogRevision() last announced with catalogChanged.
+    std::atomic<std::uint64_t> announcedCatalogRevision{0};
+
     // Null outside a framework context: no storage_module to reach.
     std::shared_ptr<StorageFetcher> storageFetcher;
 
@@ -447,19 +450,39 @@ LogosList PackageDownloaderImpl::listRepositories() {
 LogosMap PackageDownloaderImpl::refreshCatalog() {
     PendingLibCall call(*this);
     if (!call) return makeResult(call.refusal());
-    return makeResult(call.lib()->refreshCatalogs());
+    LogosMap result = makeResult(call.lib()->refreshCatalogs());
+    announceCatalogRevision(call);
+    return result;
 }
 
 LogosList PackageDownloaderImpl::getCatalog() {
     PendingLibCall call(*this);
     if (!call) return LogosList::array();
-    return LogosList::parse(call.lib()->getCatalogJson());
+    LogosList catalog = LogosList::parse(call.lib()->getCatalogJson());
+    announceCatalogRevision(call);
+    return catalog;
 }
 
 LogosList PackageDownloaderImpl::getCatalogForRepo(const std::string& repoUrlOrName) {
     PendingLibCall call(*this);
     if (!call) return LogosList::array();
-    return LogosList::parse(call.lib()->getCatalogForRepoJson(repoUrlOrName));
+    LogosList catalog = LogosList::parse(call.lib()->getCatalogForRepoJson(repoUrlOrName));
+    announceCatalogRevision(call);
+    return catalog;
+}
+
+// Once per revision, however many concurrent calls saw the lib move to it.
+void PackageDownloaderImpl::announceCatalogRevision(const PendingLibCall& call) {
+    if (call.unloading()) return;
+    const std::uint64_t revision = call.lib()->catalogRevision();
+    std::atomic<std::uint64_t>& announced = call.run()->announcedCatalogRevision;
+    std::uint64_t seen = announced.load();
+    while (seen < revision) {
+        if (announced.compare_exchange_weak(seen, revision)) {
+            catalogChanged();
+            return;
+        }
+    }
 }
 
 std::string PackageDownloaderImpl::getDownloadSource() {
@@ -513,6 +536,7 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
         downloadDone(packageName, result.value("source", ""));
     }
 
+    announceCatalogRevision(call);
     return result;
 }
 
@@ -628,6 +652,7 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
     } catch (...) {
         pushError("downloader exception: unknown");
     }
+    announceCatalogRevision(call);
     return results;
 }
 
@@ -685,5 +710,6 @@ LogosList PackageDownloaderImpl::resolveDependencies(const std::string& dependen
     } catch (...) {
         pushError("resolver exception: unknown");
     }
+    announceCatalogRevision(call);
     return results;
 }

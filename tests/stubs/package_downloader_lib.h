@@ -82,6 +82,7 @@ public:
     std::string getCatalogJson();
     std::string getCatalogForRepoJson(const std::string& urlOrName);
     std::string refreshCatalogs();
+    uint64_t catalogRevision() const;
 
     std::string downloadPackage(const std::string& repoUrlOrName,
                                 const std::string& packageName,
