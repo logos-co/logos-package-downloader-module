@@ -17,6 +17,8 @@ std::string makeNetwork(LogosModules& modules);
 
 std::function<void()> watchStorageReady(LogosModules& modules, std::function<void()> onReady);
 
+std::function<void()> watchStorageNode(LogosModules& modules, std::function<void()> onChange);
+
 // The configuration is the one the storage module saved at its last init,
 // or its default.
 StorageNode makeStorageNode(LogosModules& modules);

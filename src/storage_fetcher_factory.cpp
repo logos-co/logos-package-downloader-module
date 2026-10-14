@@ -129,6 +129,19 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
     };
 }
 
+std::function<void()> watchStorageNode(LogosModules& modules, std::function<void()> onChange) {
+    const logos::SubHandle started = modules.storage_module.onStorageStart(
+        [onChange](const std::string&) { onChange(); });
+
+    const logos::SubHandle stopped = modules.storage_module.onStorageStop(
+        [onChange](const std::string&) { onChange(); });
+
+    return [started, stopped]() {
+        started.cancel();
+        stopped.cancel();
+    };
+}
+
 StorageNode makeStorageNode(LogosModules& modules) {
     StorageNode node;
 

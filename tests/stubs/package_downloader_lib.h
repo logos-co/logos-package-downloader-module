@@ -42,6 +42,7 @@ public:
     virtual ~Fetcher() = default;
 
     virtual bool canHandle(const std::string& url) const = 0;
+    virtual std::string network() const { return {}; }
     virtual FetchResult get(const std::string& url, std::string& out) = 0;
     virtual FetchResult getToFile(const std::string& url, const std::string& path) = 0;
     virtual FetchResult getToFile(const std::string& url,
