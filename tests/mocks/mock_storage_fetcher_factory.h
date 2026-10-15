@@ -13,3 +13,10 @@ extern StorageNode fakeStorageNode;
 
 // storage_module subscriptions the fetcher from makeStorageFetcher has taken.
 extern int fakeFetcherSubscriptions;
+
+// The onChange the impl handed to watchStorageNode: calling it plays a
+// storage node start or stop.
+extern std::function<void()> fireStorageNodeChanged;
+
+// Calls to watchStorageNode.
+extern int fakeNodeWatches;

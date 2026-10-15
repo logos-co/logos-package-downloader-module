@@ -97,7 +97,9 @@ public:
     // setRepositoryEnabled, and setDownloadSource when the source changes.
     // It also fires when the catalog the lib serves moved under a call: a
     // refreshCatalog() that fetched something different, or any call that
-    // read an index whose earlier fetch failed. Subscribers re-fetch via
+    // read an index whose earlier fetch failed. It fires as well when the
+    // storage node starts or stops, since getCatalog()'s usableSources follow
+    // the node's network. Subscribers re-fetch via
     // listRepositories() / getCatalog(); everyone then holds the same copy.
     //
     // downloadProgress fires per package while its bytes are on the wire, in
@@ -143,7 +145,7 @@ private:
     // share, so one still running after the destructor frees nothing under it.
     struct CallState;
 
-    void startStorage(const std::shared_ptr<Run>& run);
+    void startStorage();
 
     // Emits catalogChanged when the lib's catalogRevision() moved past the
     // one last announced.

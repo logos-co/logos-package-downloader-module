@@ -530,6 +530,51 @@ LOGOS_TEST(storage_events_are_subscribed_on_the_first_ready) {
     LOGOS_ASSERT_EQ(fakeFetcherSubscriptions, 3);
 }
 
+// The catalog's usableSources follow the node's network.
+LOGOS_TEST(a_storage_node_start_or_stop_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    fireStorageNodeChanged = nullptr;
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    LOGOS_ASSERT_TRUE(static_cast<bool>(fireStorageNodeChanged));
+    fireStorageNodeChanged();
+
+    LOGOS_ASSERT_TRUE(events.has("catalogChanged"));
+}
+
+LOGOS_TEST(a_storage_node_change_after_stop_emits_nothing) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    fireStorageNodeChanged = nullptr;
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    impl.stop();
+
+    LOGOS_ASSERT_TRUE(static_cast<bool>(fireStorageNodeChanged));
+    fireStorageNodeChanged();
+
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
+LOGOS_TEST(the_storage_node_is_watched_once_over_several_readies) {
+    auto t = LogosTestContext("package_downloader");
+    fakeNodeWatches = 0;
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+
+    fireStorageReady();
+    fireStorageReady();
+
+    LOGOS_ASSERT_EQ(fakeNodeWatches, 1);
+}
+
 // ── Lifecycle ────────────────────────────────────────────────────────────
 
 LOGOS_TEST(a_call_before_start_is_refused) {

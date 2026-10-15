@@ -9,6 +9,10 @@ std::function<void()> fireStorageReady;
 
 int fakeFetcherSubscriptions = 0;
 
+std::function<void()> fireStorageNodeChanged;
+
+int fakeNodeWatches = 0;
+
 // By default both calls succeed and touch nothing.
 StorageNode fakeStorageNode = []() {
     StorageNode node;
@@ -39,6 +43,12 @@ std::string makeNetwork(LogosModules&) {
 
 std::function<void()> watchStorageReady(LogosModules&, std::function<void()> onReady) {
     fireStorageReady = std::move(onReady);
+    return {};
+}
+
+std::function<void()> watchStorageNode(LogosModules&, std::function<void()> onChange) {
+    ++fakeNodeWatches;
+    fireStorageNodeChanged = std::move(onChange);
     return {};
 }
 

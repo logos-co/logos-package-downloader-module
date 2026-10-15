@@ -139,16 +139,19 @@ struct PackageDownloaderImpl::Run {
     // Set once, by stop(). Read without the lock by the downloads' cancel checks.
     std::atomic<bool> stopped{false};
 
-    std::mutex mutex;
-    std::function<void()> cancelWatch;
+    // Set by the first startStorage: the node is watched once per run.
+    std::atomic<bool> nodeWatched{false};
 
-    // Keeps the storage watch, or cancels it at once if the run already stopped.
+    std::mutex mutex;
+    std::vector<std::function<void()>> cancelWatches;
+
+    // Keeps a storage watch, or cancels it at once if the run already stopped.
     void watch(std::function<void()> cancel) {
         {
             std::lock_guard<std::mutex> lock(mutex);
 
             if (!stopped) {
-                cancelWatch = std::move(cancel);
+                cancelWatches.push_back(std::move(cancel));
                 return;
             }
         }
@@ -159,7 +162,7 @@ struct PackageDownloaderImpl::Run {
     }
 
     void stop(const std::string& reason) {
-        std::function<void()> cancel;
+        std::vector<std::function<void()>> cancels;
         {
             std::lock_guard<std::mutex> lock(mutex);
 
@@ -168,11 +171,13 @@ struct PackageDownloaderImpl::Run {
             }
 
             stopped = true;
-            cancel = std::move(cancelWatch);
+            cancels = std::move(cancelWatches);
         }
 
-        if (cancel) {
-            cancel();
+        for (const auto& cancel : cancels) {
+            if (cancel) {
+                cancel();
+            }
         }
 
         if (storageFetcher) {
@@ -287,14 +292,7 @@ LogosMap PackageDownloaderImpl::start() {
     }
 
     if (isContextReady()) {
-        // Weak: the watch's callback may outlive its cancellation.
-        std::weak_ptr<Run> weakRun = run;
-
-        run->watch(watchStorageReady(modules(), [this, weakRun]() {
-            if (std::shared_ptr<Run> current = weakRun.lock()) {
-                startStorage(current);
-            }
-        }));
+        run->watch(watchStorageReady(modules(), [this]() { startStorage(); }));
     }
 
     if (!call.unloading()) {
@@ -335,17 +333,30 @@ std::string PackageDownloaderImpl::getState() {
     return m_calls->run && !m_calls->unloading ? kStateRunning : kStateStopped;
 }
 
-void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
+void PackageDownloaderImpl::startStorage() {
     // Kept until the last reply: aboutToUnload() waits for it.
     auto call = std::make_shared<PendingLibCall>(*this);
 
-    // Stopped, or restarted, since the watch fired.
-    if (!*call || call->run() != run) {
+    // Stopped since the watch fired.
+    if (!*call) {
         return;
     }
 
+    const std::shared_ptr<Run>& run = call->run();
+
     if (run->storageFetcher) {
         run->storageFetcher->subscribe();
+    }
+
+    // The catalog's usableSources follow the node's network.
+    if (!run->nodeWatched.exchange(true)) {
+        run->watch(watchStorageNode(modules(), [this]() {
+            PendingLibCall call(*this);
+
+            if (call) {
+                catalogChanged();
+            }
+        }));
     }
 
     StorageNode node = makeStorageNode(modules());

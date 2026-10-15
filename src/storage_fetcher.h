@@ -53,6 +53,8 @@ public:
 
     bool canHandle(const std::string& url) const override;
 
+    std::string network() const override;
+
     lgpd::FetchResult get(const std::string& cid, std::string& out) override;
     lgpd::FetchResult getToFile(const std::string& url, const std::string& path) override;
     lgpd::FetchResult getToFile(const std::string& url, const std::string& path,

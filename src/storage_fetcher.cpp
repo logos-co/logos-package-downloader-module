@@ -187,6 +187,10 @@ bool StorageFetcher::canHandle(const std::string& url) const {
     return handled;
 }
 
+std::string StorageFetcher::network() const {
+    return m_network();
+}
+
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::string& path) {
     return getToFile(url, path, lgpd::ProgressFn{});
 }
