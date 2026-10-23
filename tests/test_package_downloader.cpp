@@ -17,6 +17,8 @@
 #include "mocks/mock_package_downloader_lib.h"
 #include "mocks/mock_storage_fetcher_factory.h"
 
+#include <package_downloader_lib.h>
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -321,8 +323,8 @@ LOGOS_TEST(downloadPinned_emits_progress_events_for_the_package) {
 
     auto progress = events.all("downloadProgress");
     LOGOS_ASSERT_EQ(progress.size(), static_cast<size_t>(2));
-    LOGOS_ASSERT_EQ(progress[0].data, std::string("wallet_module:0/4096"));
-    LOGOS_ASSERT_EQ(progress[1].data, std::string("wallet_module:4096/4096"));
+    LOGOS_ASSERT_EQ(progress[0].data, std::string("wallet_module:0/4096@http"));
+    LOGOS_ASSERT_EQ(progress[1].data, std::string("wallet_module:4096/4096@http"));
 }
 
 LOGOS_TEST(downloadPinned_emits_downloadDone_with_the_source) {
@@ -384,10 +386,10 @@ LOGOS_TEST(downloadResolvedDependencies_attributes_progress_per_package) {
 
     auto progress = events.all("downloadProgress");
     LOGOS_ASSERT_EQ(progress.size(), static_cast<size_t>(4));
-    LOGOS_ASSERT_EQ(progress[0].data, std::string("chat_module:0/4096"));
-    LOGOS_ASSERT_EQ(progress[1].data, std::string("chat_module:4096/4096"));
-    LOGOS_ASSERT_EQ(progress[2].data, std::string("waku_module:0/4096"));
-    LOGOS_ASSERT_EQ(progress[3].data, std::string("waku_module:4096/4096"));
+    LOGOS_ASSERT_EQ(progress[0].data, std::string("chat_module:0/4096@http"));
+    LOGOS_ASSERT_EQ(progress[1].data, std::string("chat_module:4096/4096@http"));
+    LOGOS_ASSERT_EQ(progress[2].data, std::string("waku_module:0/4096@http"));
+    LOGOS_ASSERT_EQ(progress[3].data, std::string("waku_module:4096/4096@http"));
 }
 
 LOGOS_TEST(downloadResolvedDependencies_emits_downloadDone_with_the_source) {
@@ -435,11 +437,12 @@ void makeContextReady(PackageDownloaderImpl& impl) {
     impl._logosCoreSetContext_("", "", "");
 }
 
-// Answers at once, so the start is over when fireStorageReady() returns.
+// Answers at once, so the start is over when fireStorageReady() returns. Like
+// a node that comes up at once: running from the moment it is started.
 StorageNode fakeNode(bool& started) {
     StorageNode node;
 
-    node.isRunning = [](std::function<void(bool)> done) { done(false); };
+    node.isRunning = [&started](std::function<void(bool)> done) { done(started); };
     node.loadConfig = [](std::function<void(const std::string&, const std::string&)> done) { done("{}", ""); };
     node.init = [](const std::string&, std::function<void(bool)> done) { done(true); };
     node.start = [&started](std::function<void(bool)> done) {
@@ -757,4 +760,389 @@ LOGOS_TEST(setDownloadSource_surfaces_a_save_error) {
     LOGOS_ASSERT_FALSE(r["success"].get<bool>());
     LOGOS_ASSERT_EQ(r["error"].get<std::string>(), std::string("cannot write config file: /x"));
     LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
+// ── Download source gates the storage node ───────────────────────────────
+
+namespace {
+
+std::vector<std::string> storageStates(logos_test::EventCapture& events) {
+    std::vector<std::string> states;
+    for (const auto& e : events.all("storageStateChanged")) states.push_back(e.data);
+    return states;
+}
+
+} // namespace
+
+// A user who chose GitHub only must never see the storage node come up.
+LOGOS_TEST(a_saved_http_source_never_starts_storage) {
+    auto t = LogosTestContext("package_downloader");
+    lgpd::persistedDownloadSource = lgpd::DownloadSource::Http;
+    fireStorageReady = nullptr;
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    impl.start();
+    const bool watched = static_cast<bool>(fireStorageReady);
+    lgpd::persistedDownloadSource = lgpd::DownloadSource::Any;
+
+    LOGOS_ASSERT_FALSE(watched);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("off"));
+}
+
+// A first run chooses before start(), or the default "any" would bring the
+// node up before the choice arrived.
+LOGOS_TEST(a_source_set_before_start_is_saved_by_start_and_gates_storage) {
+    auto t = LogosTestContext("package_downloader");
+    fireStorageReady = nullptr;
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    LogosMap r = impl.setDownloadSource("http");
+    const std::string beforeStart = impl.getDownloadSource();
+    const bool savedBeforeStart = t.cFunctionCalled("setDownloadSource");
+    impl.start();
+
+    LOGOS_ASSERT_TRUE(r["success"].get<bool>());
+    LOGOS_ASSERT_EQ(beforeStart, std::string("http"));
+    LOGOS_ASSERT_FALSE(savedBeforeStart);
+    LOGOS_ASSERT_TRUE(t.cFunctionCalled("setDownloadSource"));
+    LOGOS_ASSERT_EQ(impl.getDownloadSource(), std::string("http"));
+    LOGOS_ASSERT_FALSE(static_cast<bool>(fireStorageReady));
+}
+
+LOGOS_TEST(an_unknown_source_before_start_is_refused) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+
+    LogosMap r = impl.setDownloadSource("ftp");
+
+    LOGOS_ASSERT_FALSE(r["success"].get<bool>());
+    LOGOS_ASSERT_EQ(impl.getDownloadSource(), std::string());
+}
+
+LOGOS_TEST(storage_state_reports_waiting_starting_running) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    impl.start();
+    fireStorageReady();
+    fakeStorageNode = defaultNode;
+
+    const std::vector<std::string> states = storageStates(events);
+    LOGOS_ASSERT_EQ(states.size(), static_cast<size_t>(3));
+    LOGOS_ASSERT_EQ(states[0], std::string("waiting"));
+    LOGOS_ASSERT_EQ(states[1], std::string("starting"));
+    LOGOS_ASSERT_EQ(states[2], std::string("running"));
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("running"));
+}
+
+// The failure is what the shell shows; before this it was only logged.
+LOGOS_TEST(a_refused_storage_start_reports_failed_with_the_reason) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode.start = [](std::function<void(bool)> done) { done(false); };
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+
+    impl.start();
+    fireStorageReady();
+    fakeStorageNode = defaultNode;
+
+    LogosMap state = impl.getStorageState();
+    LOGOS_ASSERT_EQ(state["state"].get<std::string>(), std::string("failed"));
+    LOGOS_ASSERT_CONTAINS(state["error"].get<std::string>(), std::string("refused"));
+    LOGOS_ASSERT_EQ(storageStates(events).back(),
+                    std::string("failed:the storage module refused the start command"));
+}
+
+// Switching to "http" lets go of the node; switching back starts it again.
+LOGOS_TEST(switching_to_http_and_back_stops_then_restarts_storage_use) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    impl.setDownloadSource("http");
+    const std::string afterHttp = impl.getStorageState()["state"].get<std::string>();
+
+    started = false;
+    fireStorageReady = nullptr;
+    impl.setDownloadSource("any");
+    const bool rewatched = static_cast<bool>(fireStorageReady);
+    if (rewatched) fireStorageReady();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(afterHttp, std::string("off"));
+    LOGOS_ASSERT_TRUE(rewatched);
+    LOGOS_ASSERT_TRUE(started);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("running"));
+}
+
+// storage_module reloaded while the source is "http": a ready edge from a
+// watch that outlived its cancellation must not bring the node up.
+LOGOS_TEST(a_storage_ready_under_http_starts_nothing) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    impl.setDownloadSource("http");
+
+    fireStorageReady();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(started);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("off"));
+}
+
+LOGOS_TEST(stop_reports_storage_off) {
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    impl.stop();
+
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("off"));
+}
+
+// storage_module's ready arrives twice for one load: the second start while
+// the first is under way is refused as "busy", and was reported as a failure,
+// which sent a "Both" user to GitHub and unloaded the node mid-start.
+LOGOS_TEST(a_second_ready_while_starting_starts_nothing_and_reports_no_failure) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    int starts = 0;
+    std::function<void(bool)> finishFirstStart;
+    fakeStorageNode.start = [&](std::function<void(bool)> done) {
+        ++starts;
+        if (!finishFirstStart) finishFirstStart = done;
+        else done(false);   // what storage_module answers: "node is busy"
+    };
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+
+    fireStorageReady();
+    fireStorageReady();
+    if (finishFirstStart) finishFirstStart(true);
+    fireStorageStarted(R"({"success":true,"message":""})");
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(starts, 1);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("running"));
+    for (const std::string& state : storageStates(events)) {
+        LOGOS_ASSERT_FALSE(state.rfind("failed", 0) == 0);
+    }
+}
+
+// ── Where the bytes come from ────────────────────────────────────────────
+
+// Every sample names its transport, so the UI can say a download is on Logos
+// Storage (and why it may be slower) before any byte arrives.
+LOGOS_TEST(downloadPinned_progress_names_the_transport) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/wallet_module.lgx");
+    mockTransports = {"logos"};
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    mockTransports = {"http"};
+
+    auto progress = events.all("downloadProgress");
+    LOGOS_ASSERT_EQ(progress.size(), static_cast<size_t>(2));
+    LOGOS_ASSERT_EQ(progress[0].data, std::string("wallet_module:0/4096@logos"));
+    LOGOS_ASSERT_EQ(progress[1].data, std::string("wallet_module:4096/4096@logos"));
+}
+
+// A fallback shows as the transport changing, with the count starting over.
+LOGOS_TEST(a_fallback_to_http_changes_the_transport_in_progress) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    t.mockCFunction("downloadPackage").returns("/tmp/wallet_module.lgx");
+    mockTransports = {"logos", "http"};
+    PackageDownloaderImpl impl;
+    impl.start();
+
+    impl.downloadPinned("my-catalog", "wallet_module", "1.0.0", "deadbeef");
+    mockTransports = {"http"};
+
+    auto progress = events.all("downloadProgress");
+    LOGOS_ASSERT_EQ(progress.size(), static_cast<size_t>(3));
+    LOGOS_ASSERT_EQ(progress[0].data, std::string("wallet_module:0/4096@logos"));
+    LOGOS_ASSERT_EQ(progress[1].data, std::string("wallet_module:0/4096@http"));
+    LOGOS_ASSERT_EQ(progress[2].data, std::string("wallet_module:4096/4096@http"));
+}
+
+// ── The node after the start: storage_module's own events ────────────────
+
+namespace {
+
+std::string storageStateOf(PackageDownloaderImpl& impl) {
+    return impl.getStorageState()["state"].get<std::string>();
+}
+
+// A node that accepts the start but has not come up yet: storage_module
+// finishes it later and says so with storageStart.
+StorageNode slowNode() {
+    StorageNode node = fakeStorageNode;
+    node.isRunning = [](std::function<void(bool)> done) { done(false); };
+    node.start = [](std::function<void(bool)> done) { done(true); };
+    return node;
+}
+
+} // namespace
+
+// Accepted is not up: "running" waits for storageStart.
+LOGOS_TEST(an_accepted_start_waits_for_storageStart) {
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = slowNode();
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    const std::string beforeEvent = storageStateOf(impl);
+    fireStorageStarted(R"({"success":true,"message":""})");
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(beforeEvent, std::string("starting"));
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+LOGOS_TEST(a_failed_storageStart_reports_its_message) {
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = slowNode();
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    fireStorageStarted(R"({"success":false,"message":"port 8070 is in use"})");
+    fakeStorageNode = defaultNode;
+
+    LogosMap state = impl.getStorageState();
+    LOGOS_ASSERT_EQ(state["state"].get<std::string>(), std::string("failed"));
+    LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string("port 8070 is in use"));
+}
+
+// Stopped from the Storage app, say: downloads can no longer use it, and the
+// state said "running" for good before.
+LOGOS_TEST(a_node_stopped_after_running_reports_failed) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const std::string beforeStop = storageStateOf(impl);
+
+    fireStorageStopped(R"({"success":true,"message":""})");
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(beforeStop, std::string("running"));
+    LogosMap state = impl.getStorageState();
+    LOGOS_ASSERT_EQ(state["state"].get<std::string>(), std::string("failed"));
+    LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string("the storage node stopped"));
+}
+
+// Unloaded or crashed: storage_module leaves "ready".
+LOGOS_TEST(storage_module_going_away_reports_failed) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    fireStorageGone();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("failed"));
+}
+
+// ...and coming back starts it again.
+LOGOS_TEST(storage_module_coming_back_runs_again) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    fireStorageGone();
+
+    started = false;
+    fireStorageReady();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_TRUE(started);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+// GitHub only: what the node does is not the downloader's business.
+LOGOS_TEST(storage_events_under_http_change_nothing) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    impl.setDownloadSource("http");
+
+    fireStorageStarted(R"({"success":true,"message":""})");
+    fireStorageStopped(R"({"success":true,"message":""})");
+    fireStorageGone();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("off"));
+}
+
+// A storageStart sent before the subscription armed is lost: asking for the
+// state checks the node, so whoever polls is not stuck on "starting".
+LOGOS_TEST(asking_for_the_state_rechecks_a_start_that_never_reported) {
+    auto t = LogosTestContext("package_downloader");
+    bool up = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = slowNode();
+    fakeStorageNode.isRunning = [&up](std::function<void(bool)> done) { done(up); };
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const std::string whileStarting = storageStateOf(impl);
+
+    up = true;
+    impl.getStorageState();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(whileStarting, std::string("starting"));
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
 }

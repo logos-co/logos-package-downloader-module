@@ -25,6 +25,7 @@
 #include <string>
 
 std::function<void()> duringDownloadPackage;
+std::vector<std::string> mockTransports = {"http"};
 
 namespace {
 
@@ -103,7 +104,8 @@ std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOr
                                                   const std::string& /*outputDir*/,
                                                   const ProgressFn& onProgress,
                                                   std::string* source,
-                                                  const CancelFn& isCancelled) {
+                                                  const CancelFn& isCancelled,
+                                                  const TransportFn& onTransport) {
     LOGOS_CMOCK_RECORD("downloadPackage");
     if (isCancelled && isCancelled()) {
         errorMessage = "download cancelled";
@@ -121,8 +123,11 @@ std::string PackageDownloaderLib::downloadPackage(const std::string& /*repoUrlOr
     // package name. The real lib rate-limits before this point, so a mock
     // that emitted a realistic per-chunk storm would be modelling the wrong
     // contract — these are the samples that already survived the throttle.
+    for (const std::string& transport : mockTransports) {
+        if (onTransport) onTransport(transport);
+        if (onProgress) onProgress(0, 4096);
+    }
     if (onProgress) {
-        onProgress(0, 4096);
         onProgress(4096, 4096);
     }
     if (source) {
@@ -158,6 +163,10 @@ std::string RepositoryRegistry::setEnabled(const std::string& /*url*/, bool /*en
     LOGOS_CMOCK_RECORD("setEnabled");
     return mockStr("setEnabled", "");
 }
+
+DownloadSource persistedDownloadSource = DownloadSource::Any;
+
+RepositoryRegistry::RepositoryRegistry() : downloadSource_(persistedDownloadSource) {}
 
 DownloadSource RepositoryRegistry::downloadSource() const {
     return downloadSource_;

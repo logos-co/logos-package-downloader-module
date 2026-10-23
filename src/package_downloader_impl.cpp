@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>   // std::move, std::exchange
 #include <vector>
@@ -71,11 +72,19 @@ const char* const kStopped = "the downloader was stopped";
 const char* const kStateRunning = "running";
 const char* const kStateStopped = "stopped";
 
+// The states getStorageState() answers and storageStateChanged reports.
+const char* const kStorageOff = "off";
+const char* const kStorageWaiting = "waiting";
+const char* const kStorageStarting = "starting";
+const char* const kStorageRunning = "running";
+const char* const kStorageFailed = "failed";
+
 // Where a download's byte counts go. Empty means "report nothing"; the lib
 // still runs curl's transfer callback to check for unload cancellation.
 using ProgressSink = std::function<void(const std::string& packageName,
                                         std::uint64_t received,
-                                        std::uint64_t total)>;
+                                        std::uint64_t total,
+                                        const std::string& transport)>;
 
 // Single-shot download with full (repo, version, hash) pinning. Used by
 // `downloadPinned` and `downloadResolvedDependencies` below. Kept as a
@@ -91,10 +100,25 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
     LogosMap result = LogosMap::object();
     result["name"] = packageName;
 
+    // Set before each attempt, read by that attempt's samples: the lib calls
+    // both on this thread or under a transfer it has started since.
+    std::mutex transportMutex;
+    std::string transport;
+
     lgpd::ProgressFn progressFn;
+    lgpd::TransportFn transportFn;
     if (onProgress) {
         progressFn = [&](std::uint64_t received, std::uint64_t total) {
-            onProgress(packageName, received, total);
+            std::string current;
+            {
+                std::lock_guard<std::mutex> lock(transportMutex);
+                current = transport;
+            }
+            onProgress(packageName, received, total, current);
+        };
+        transportFn = [&](const std::string& next) {
+            std::lock_guard<std::mutex> lock(transportMutex);
+            transport = next;
         };
     }
 
@@ -102,7 +126,7 @@ LogosMap pinnedDownload(lgpd::PackageDownloaderLib* lib,
     std::string source;
     std::string path = lib->downloadPackage(repoUrlOrName, packageName, err,
                                             version, rootHash, "", progressFn, &source,
-                                            isCancelled);
+                                            isCancelled, transportFn);
 
     if (!source.empty()) {
         result["source"] = source;
@@ -142,15 +166,33 @@ struct PackageDownloaderImpl::Run {
     std::mutex mutex;
     std::function<void()> cancelWatch;
 
-    // Keeps the storage watch, or cancels it at once if the run already stopped.
+    // Keeps the storage watch in place of any earlier one, or cancels it at
+    // once if the run already stopped.
     void watch(std::function<void()> cancel) {
+        std::function<void()> previous;
         {
             std::lock_guard<std::mutex> lock(mutex);
 
             if (!stopped) {
-                cancelWatch = std::move(cancel);
-                return;
+                previous = std::exchange(cancelWatch, std::move(cancel));
+                cancel = nullptr;
             }
+        }
+
+        if (previous) {
+            previous();
+        }
+
+        if (cancel) {
+            cancel();
+        }
+    }
+
+    void unwatch() {
+        std::function<void()> cancel;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            cancel = std::move(cancelWatch);
         }
 
         if (cancel) {
@@ -193,6 +235,12 @@ struct PackageDownloaderImpl::CallState {
 
     // Set when aboutToUnload() returned Asynchronous; the destructor clears it.
     std::function<void()> onDrained;
+
+    // A setDownloadSource() before start(), saved by start().
+    std::optional<lgpd::DownloadSource> pendingSource;
+
+    std::string storageState = kStorageOff;
+    std::string storageError;
 };
 
 class PackageDownloaderImpl::PendingLibCall {
@@ -269,6 +317,21 @@ LogosMap PackageDownloaderImpl::start() {
     auto run = std::make_shared<Run>();
     run->lib = std::make_shared<lgpd::PackageDownloaderLib>(configPath);
 
+    std::optional<lgpd::DownloadSource> pendingSource;
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        pendingSource = std::exchange(m_calls->pendingSource, std::nullopt);
+    }
+
+    if (pendingSource) {
+        const std::string err = run->lib->registry().setDownloadSource(*pendingSource);
+
+        if (!err.empty()) {
+            fprintf(stderr, "PackageDownloaderImpl::start: could not save the download source: %s\n",
+                    err.c_str());
+        }
+    }
+
     // Before any call is served: setStorageFetcher then never waits on the
     // lib's lock, which a first catalog fetch holds across the network.
     if (isContextReady()) {
@@ -286,15 +349,8 @@ LogosMap PackageDownloaderImpl::start() {
         m_calls->run = run;
     }
 
-    if (isContextReady()) {
-        // Weak: the watch's callback may outlive its cancellation.
-        std::weak_ptr<Run> weakRun = run;
-
-        run->watch(watchStorageReady(modules(), [this, weakRun]() {
-            if (std::shared_ptr<Run> current = weakRun.lock()) {
-                startStorage(current);
-            }
-        }));
+    if (run->lib->registry().downloadSource() != lgpd::DownloadSource::Http) {
+        watchStorage(run);
     }
 
     if (!call.unloading()) {
@@ -324,6 +380,8 @@ LogosMap PackageDownloaderImpl::stop() {
         if (!m_calls->unloading) {
             stateChanged(kStateStopped);
         }
+
+        setStorageState(kStorageOff, "");
     }
 
     return makeResult("");
@@ -339,9 +397,28 @@ void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
     // Kept until the last reply: aboutToUnload() waits for it.
     auto call = std::make_shared<PendingLibCall>(*this);
 
-    // Stopped, or restarted, since the watch fired.
-    if (!*call || call->run() != run) {
+    // Stopped, or restarted, since the watch fired; or switched to "http".
+    if (!*call || call->run() != run
+        || run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
         return;
+    }
+
+    // storage_module's ready can arrive twice for one load (the edge and the
+    // armed replay). A second start while the first is under way is refused as
+    // "busy", which is no failure.
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+        if (m_calls->storageState == kStorageStarting) {
+            return;
+        }
+
+        m_calls->storageState = kStorageStarting;
+        m_calls->storageError.clear();
+    }
+
+    if (!call->unloading()) {
+        storageStateChanged(kStorageStarting, "");
     }
 
     if (run->storageFetcher) {
@@ -351,11 +428,197 @@ void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
     StorageNode node = makeStorageNode(modules());
     node.stopped = [call]() { return call->cancelled(); };
 
-    startStorageNode(node, [call](const std::string& error) {
+    startStorageNode(node, [this, call, run](const std::string& error) {
         if (!error.empty()) {
             fprintf(stderr, "PackageDownloaderImpl::startStorage: %s\n", error.c_str());
         }
+
+        if (call->cancelled()) {
+            return;
+        }
+
+        if (!error.empty()) {
+            setStorageState(kStorageFailed, error);
+            return;
+        }
+
+        // Accepted is not up: storage_module finishes the start later and
+        // says so with storageStart. A node that was running already says
+        // nothing, so ask it.
+        confirmStorageRunning(run);
     });
+}
+
+// Moves to `to` only from one of `from`: a late event must not overwrite a
+// state reached since.
+bool PackageDownloaderImpl::moveStorageState(std::initializer_list<const char*> from,
+                                             const char* to, const std::string& error) {
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+        if (m_calls->unloading) {
+            return false;
+        }
+
+        const bool allowed = std::any_of(from.begin(), from.end(), [&](const char* s) {
+            return m_calls->storageState == s;
+        });
+
+        if (!allowed || (m_calls->storageState == to && m_calls->storageError == error)) {
+            return false;
+        }
+
+        m_calls->storageState = to;
+        m_calls->storageError = error;
+    }
+
+    storageStateChanged(to, error);
+    return true;
+}
+
+void PackageDownloaderImpl::confirmStorageRunning(const std::shared_ptr<Run>& run) {
+    auto call = std::make_shared<PendingLibCall>(*this);
+
+    if (!*call || call->run() != run || !isContextReady()) {
+        return;
+    }
+
+    StorageNode node = makeStorageNode(modules());
+    node.isRunning([this, call](bool running) {
+        if (running && !call->cancelled()) {
+            moveStorageState({kStorageStarting}, kStorageRunning, "");
+        }
+    });
+}
+
+void PackageDownloaderImpl::storageStarted(const std::shared_ptr<Run>& run,
+                                           const std::string& payload) {
+    PendingLibCall call(*this);
+
+    if (!call || call.run() != run
+        || run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
+        return;
+    }
+
+    bool success = false;
+    std::string message;
+
+    // On the module's event thread: nothing may escape.
+    try {
+        const LogosMap event = LogosMap::parse(payload);
+
+        if (event.is_object()) {
+            success = event.value("success", false);
+            message = event.value("message", "");
+        }
+    } catch (...) {
+    }
+
+    if (success) {
+        // From failed too: another consumer may have brought it up since.
+        moveStorageState({kStorageStarting, kStorageWaiting, kStorageFailed}, kStorageRunning, "");
+    } else {
+        moveStorageState({kStorageStarting}, kStorageFailed,
+                         message.empty() ? std::string("the storage node did not start") : message);
+    }
+}
+
+// Stopped (the Storage app, say), unloaded or crashed while in use.
+void PackageDownloaderImpl::storageStopped(const std::shared_ptr<Run>& run) {
+    PendingLibCall call(*this);
+
+    if (!call || call.run() != run
+        || run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
+        return;
+    }
+
+    moveStorageState({kStorageRunning, kStorageStarting}, kStorageFailed,
+                     "the storage node stopped");
+}
+
+// Waits for storage_module to be ready, then starts the node. Again after a
+// switch away from "http": the watch's armed replay starts it at once if
+// storage_module is ready already.
+void PackageDownloaderImpl::watchStorage(const std::shared_ptr<Run>& run) {
+    if (!isContextReady()) {
+        return;
+    }
+
+    setStorageState(kStorageWaiting, "");
+
+    // Weak: the watch's callback may outlive its cancellation.
+    std::weak_ptr<Run> weakRun = run;
+
+    std::function<void()> cancelReady = watchStorageReady(
+        modules(),
+        [this, weakRun]() {
+            if (std::shared_ptr<Run> current = weakRun.lock()) {
+                startStorage(current);
+            }
+        },
+        [this, weakRun]() {
+            if (std::shared_ptr<Run> current = weakRun.lock()) {
+                storageStopped(current);
+            }
+        });
+
+    std::function<void()> cancelNode = watchStorageNode(
+        modules(),
+        [this, weakRun](const std::string& payload) {
+            if (std::shared_ptr<Run> current = weakRun.lock()) {
+                storageStarted(current, payload);
+            }
+        },
+        [this, weakRun](const std::string&) {
+            if (std::shared_ptr<Run> current = weakRun.lock()) {
+                storageStopped(current);
+            }
+        });
+
+    run->watch([cancelReady, cancelNode]() {
+        if (cancelReady) cancelReady();
+        if (cancelNode) cancelNode();
+    });
+}
+
+void PackageDownloaderImpl::setStorageState(const std::string& state, const std::string& error) {
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+        if (m_calls->unloading
+            || (m_calls->storageState == state && m_calls->storageError == error)) {
+            return;
+        }
+
+        m_calls->storageState = state;
+        m_calls->storageError = error;
+    }
+
+    storageStateChanged(state, error);
+}
+
+LogosMap PackageDownloaderImpl::getStorageState() {
+    LogosMap r = LogosMap::object();
+    std::shared_ptr<Run> run;
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+
+        r["state"] = m_calls->storageState;
+        r["error"] = m_calls->storageError;
+
+        if (m_calls->storageState == kStorageStarting) {
+            run = m_calls->run;
+        }
+    }
+
+    // A storageStart missed (sent before the subscription armed) would hold
+    // "starting" for good: whoever is waiting on it asks again, and this
+    // checks the node meanwhile.
+    if (run) {
+        confirmStorageRunning(run);
+    }
+
+    return r;
 }
 
 LogosShutdown PackageDownloaderImpl::aboutToUnload() {
@@ -487,26 +750,57 @@ void PackageDownloaderImpl::announceCatalogRevision(const PendingLibCall& call) 
 
 std::string PackageDownloaderImpl::getDownloadSource() {
     PendingLibCall call(*this);
-    if (!call) return {};
+    if (!call) {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        return m_calls->pendingSource ? lgpd::downloadSourceName(*m_calls->pendingSource)
+                                      : std::string();
+    }
     return lgpd::downloadSourceName(call.lib()->registry().downloadSource());
 }
 
 LogosMap PackageDownloaderImpl::setDownloadSource(const std::string& source) {
     PendingLibCall call(*this);
-    if (!call) return makeResult(call.refusal());
+    if (!call && !call.counted()) return makeResult(call.refusal());
 
     const auto parsed = lgpd::parseDownloadSource(source);
     if (!parsed) {
         return makeResult("unknown download source '" + source + "': expected any, logos or http");
     }
 
+    if (!call) {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        m_calls->pendingSource = *parsed;
+        return makeResult("");
+    }
+
     lgpd::RepositoryRegistry& registry = call.lib()->registry();
     const bool changed = registry.downloadSource() != *parsed;
     const std::string err = registry.setDownloadSource(*parsed);
 
+    if (!err.empty() || !changed || call.unloading()) {
+        return makeResult(err);
+    }
+
     // The catalog's availability marks follow the source.
-    if (err.empty() && changed && !call.unloading()) catalogChanged();
-    return makeResult(err);
+    catalogChanged();
+
+    // The node is let go of, not stopped: another consumer may be using it.
+    if (*parsed == lgpd::DownloadSource::Http) {
+        call.run()->unwatch();
+        setStorageState(kStorageOff, "");
+    } else {
+        std::string state;
+        {
+            std::lock_guard<std::mutex> lock(m_calls->mutex);
+            state = m_calls->storageState;
+        }
+
+        if (state == kStorageOff) {
+            watchStorage(call.run());
+        }
+    }
+
+    return makeResult("");
 }
 
 LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
@@ -524,9 +818,9 @@ LogosMap PackageDownloaderImpl::downloadPinned(const std::string& repoUrlOrName,
 
     LogosMap result = pinnedDownload(call.lib(), repoUrlOrName, packageName, version, rootHash,
                                      [this, &call](const std::string& name, std::uint64_t received,
-                                                   std::uint64_t total) {
+                                                   std::uint64_t total, const std::string& transport) {
                                          if (!call.unloading()) {
-                                             downloadProgress(name, received, total);
+                                             downloadProgress(name, received, total, transport);
                                          }
                                      },
                                      [&call]() { return call.cancelled(); });
@@ -633,9 +927,9 @@ LogosList PackageDownloaderImpl::downloadResolvedDependencies(const std::string&
             LogosMap downloaded = pinnedDownload(
                 call.lib(), repoUrl, name, version, rootHash,
                 [this, &call](const std::string& pkg, std::uint64_t received,
-                              std::uint64_t total) {
+                              std::uint64_t total, const std::string& transport) {
                     if (!call.unloading()) {
-                        downloadProgress(pkg, received, total);
+                        downloadProgress(pkg, received, total, transport);
                     }
                 },
                 [&call]() { return call.cancelled(); });

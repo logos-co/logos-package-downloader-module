@@ -6,6 +6,9 @@
 #include <utility>
 
 std::function<void()> fireStorageReady;
+std::function<void()> fireStorageGone;
+std::function<void(const std::string&)> fireStorageStarted;
+std::function<void(const std::string&)> fireStorageStopped;
 
 int fakeFetcherSubscriptions = 0;
 
@@ -37,8 +40,18 @@ std::string makeNetwork(LogosModules&) {
     return {};
 }
 
-std::function<void()> watchStorageReady(LogosModules&, std::function<void()> onReady) {
+std::function<void()> watchStorageReady(LogosModules&, std::function<void()> onReady,
+                                        std::function<void()> onGone) {
     fireStorageReady = std::move(onReady);
+    fireStorageGone = std::move(onGone);
+    return {};
+}
+
+std::function<void()> watchStorageNode(LogosModules&,
+                                       std::function<void(const std::string&)> onStarted,
+                                       std::function<void(const std::string&)> onStopped) {
+    fireStorageStarted = std::move(onStarted);
+    fireStorageStopped = std::move(onStopped);
     return {};
 }
 

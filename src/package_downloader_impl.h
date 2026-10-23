@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -53,9 +54,17 @@ public:
     // Storage, then HTTP), "logos" (Logos Storage only) or "http" (HTTP only),
     // persisted with the repositories. getCatalog() marks each version the
     // source cannot serve (`sourceAvailable: false`, `sourceUnavailableReason`),
-    // and downloads never pick one.
+    // and downloads never pick one. Under "http" the storage node is never
+    // started. Before start() the source is held and saved by start(), so a
+    // first run can choose it before storage could come up.
     std::string getDownloadSource();
     LogosMap  setDownloadSource(const std::string& source);
+
+    // The downloader's use of the storage node: { state, error }. state is
+    // "off" (stopped, or the source is "http"), "waiting" (for storage_module
+    // to be ready), "starting", "running" or "failed" (error says why).
+    // storageStateChanged reports each change.
+    LogosMap  getStorageState();
 
     // Pinned download — picks an exact (repository, version, rootHash)
     // candidate from the merged catalog. Empty args mean "any matching".
@@ -101,7 +110,10 @@ public:
     // listRepositories() / getCatalog(); everyone then holds the same copy.
     //
     // downloadProgress fires per package while its bytes are on the wire, in
-    // install order, already rate-limited by the lib. `total` is 0 when
+    // install order, already rate-limited by the lib. `transport` says where
+    // they come from: "logos" (Logos Storage) or "http". Each attempt starts
+    // with a 0-byte sample, so a fallback from Logos Storage shows as the
+    // transport changing and the count starting over. `total` is 0 when
     // neither the transport nor the catalog knows the size — render that
     // indeterminate, never divide by it. Covers the TRANSFER ONLY:
     // verification and installation follow the last sample, so
@@ -121,9 +133,10 @@ public:
     // neither does an unload.
 logos_events:
     void catalogChanged();
-    void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total);
+    void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total, const std::string& transport);
     void downloadDone(const std::string& packageName, const std::string& source);
     void stateChanged(const std::string& state);
+    void storageStateChanged(const std::string& state, const std::string& error);
 
 protected:
     // Refuses new calls, stops events and fails the storage waits, then
@@ -144,6 +157,12 @@ private:
     struct CallState;
 
     void startStorage(const std::shared_ptr<Run>& run);
+    void watchStorage(const std::shared_ptr<Run>& run);
+    void setStorageState(const std::string& state, const std::string& error);
+    bool moveStorageState(std::initializer_list<const char*> from, const char* to, const std::string& error);
+    void confirmStorageRunning(const std::shared_ptr<Run>& run);
+    void storageStarted(const std::shared_ptr<Run>& run, const std::string& payload);
+    void storageStopped(const std::shared_ptr<Run>& run);
 
     // Emits catalogChanged when the lib's catalogRevision() moved past the
     // one last announced.

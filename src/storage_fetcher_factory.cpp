@@ -101,15 +101,22 @@ std::string makeNetwork(LogosModules& modules) {
 
 // The factory is swapped for a mock in unit tests, which have no logos_sdk.h,
 // so we keep watchStorageReady here and don't rely on modules.modules_state in the mock.
-std::function<void()> watchStorageReady(LogosModules& modules, std::function<void()> onReady) {
+std::function<void()> watchStorageReady(LogosModules& modules, std::function<void()> onReady,
+                                        std::function<void()> onGone) {
     const logos::SubHandle state = modules.modules_state.onModule_state_changed(
-        [onReady](const std::string& module,
-                  const LogosMap&, const LogosMap&,
-                  const std::string&,
-                  const std::string& newState,
-                  const LogosMap&, std::uint64_t) {
-            if (module == "storage_module" && newState == "ready") {
+        [onReady, onGone](const std::string& module,
+                          const LogosMap&, const LogosMap&,
+                          const std::string&,
+                          const std::string& newState,
+                          const LogosMap&, std::uint64_t) {
+            if (module != "storage_module") {
+                return;
+            }
+
+            if (newState == "ready") {
                 onReady();
+            } else if (onGone) {
+                onGone();
             }
         });
 
@@ -126,6 +133,18 @@ std::function<void()> watchStorageReady(LogosModules& modules, std::function<voi
     return [&modules, state]() {
         state.cancel();
         modules.modules_state.onSubscriptionStatus({});
+    };
+}
+
+std::function<void()> watchStorageNode(LogosModules& modules,
+                                       std::function<void(const std::string&)> onStarted,
+                                       std::function<void(const std::string&)> onStopped) {
+    const logos::SubHandle started = modules.storage_module.onStorageStart(std::move(onStarted));
+    const logos::SubHandle stopped = modules.storage_module.onStorageStop(std::move(onStopped));
+
+    return [started, stopped]() {
+        started.cancel();
+        stopped.cancel();
     };
 }
 
