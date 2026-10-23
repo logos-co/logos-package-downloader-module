@@ -19,17 +19,24 @@ auto-generates `*Async` wrappers for IPC, so callers never block.
 Loading the module does nothing: it reads no configuration and leaves
 `storage_module` alone. A consumer calls `start()` before its first call, and
 every other method is refused with `the downloader is not started` until then
-(the list getters answer empty).
+(the list getters answer empty). The exception is `setDownloadSource()`: before
+`start()` it is held and saved by `start()`, so a first run can pick `"http"`
+before the storage node could come up.
 
 | Method | Return | Description |
 |--------|--------|-------------|
-| `start()` | `QVariantMap` | Load the repository configuration and, when `storage_module` is loaded, start the storage node. Idempotent: a second call succeeds and does nothing |
+| `start()` | `QVariantMap` | Load the repository configuration and, when `storage_module` is loaded and the download source is not `"http"`, start the storage node. Idempotent: a second call succeeds and does nothing |
 | `stop()` | `QVariantMap` | Cancel the downloads in flight and let go of the storage node, without stopping it: it is shared |
 | `getState()` | `QString` | `"stopped"` or `"running"` |
+| `getStorageState()` | `QVariantMap` | `{ state, error }`: the downloader's use of the storage node. `state` is `"off"` (stopped, or the source is `"http"`), `"waiting"` (for `storage_module` to be ready), `"starting"`, `"running"` or `"failed"`, with `error` saying why |
 
 `stateChanged(state)` is emitted when `start()` or `stop()` changes the state,
 with the new one (`"running"` or `"stopped"`). A call that changes nothing emits
 nothing, and neither does an unload.
+
+`storageStateChanged(state, error)` is emitted on each change of
+`getStorageState()`. Switching the source to `"http"` lets go of the node
+(`"off"`) without stopping it; switching back starts it again.
 
 ### Repositories
 

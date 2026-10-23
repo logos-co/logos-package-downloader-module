@@ -26,6 +26,7 @@ namespace lgpd {
 /// to a `downloadProgress` event.
 using ProgressFn = std::function<void(std::uint64_t received, std::uint64_t total)>;
 using CancelFn = std::function<bool()>;
+using TransportFn = std::function<void(const std::string& transport)>;
 
 struct FetchResult {
     bool ok = false;
@@ -54,6 +55,8 @@ public:
 
 class RepositoryRegistry {
 public:
+    RepositoryRegistry();
+
     // All three return an empty string on success or an error message.
     std::string addRepository(const std::string& url);
     std::string removeRepository(const std::string& url);
@@ -63,7 +66,7 @@ public:
     std::string setDownloadSource(DownloadSource source);
 
 private:
-    DownloadSource downloadSource_ = DownloadSource::Any;
+    DownloadSource downloadSource_;
 };
 
 class PackageDownloaderLib {
@@ -101,7 +104,8 @@ public:
                                 const std::string& outputDir,
                                 const ProgressFn& onProgress,
                                 std::string* source,
-                                const CancelFn& isCancelled);
+                                const CancelFn& isCancelled,
+                                const TransportFn& onTransport = {});
 
     std::string resolveDependenciesJson(const std::string& dependenciesJson,
                                         const std::string& installedPackagesJson = "");
