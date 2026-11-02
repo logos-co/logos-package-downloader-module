@@ -166,6 +166,9 @@ struct PackageDownloaderImpl::Run {
     // Null outside a framework context: no storage_module to reach.
     std::shared_ptr<StorageFetcher> storageFetcher;
 
+    // Set by start(), from setStorageOnDemand().
+    bool storageOnDemand = false;
+
     // Set once, by stop(). Read without the lock by the downloads' cancel checks.
     std::atomic<bool> stopped{false};
 
@@ -248,6 +251,9 @@ struct PackageDownloaderImpl::CallState {
     std::string storageState = kStorageOff;
     std::string storageError;
 
+    // setStorageOnDemand(), taken by the next start().
+    bool storageOnDemand = false;
+
     // storage_module is ready, as the watch last said.
     bool storageModuleReady = false;
 
@@ -309,6 +315,23 @@ PackageDownloaderImpl::~PackageDownloaderImpl() {
     m_calls->storageChanged.notify_all();
 }
 
+LogosMap PackageDownloaderImpl::setStorageOnDemand(bool onDemand) {
+    std::lock_guard<std::mutex> lifecycle(m_lifecycleMutex);
+    PendingLibCall call(*this);
+
+    if (!call.counted()) {
+        return makeResult(kUnloading);
+    }
+
+    if (call) {
+        return makeResult("the downloader is started: call setStorageOnDemand() before start()");
+    }
+
+    std::lock_guard<std::mutex> lock(m_calls->mutex);
+    m_calls->storageOnDemand = onDemand;
+    return makeResult("");
+}
+
 LogosMap PackageDownloaderImpl::start() {
     std::lock_guard<std::mutex> lifecycle(m_lifecycleMutex);
 
@@ -336,6 +359,7 @@ LogosMap PackageDownloaderImpl::start() {
     {
         std::lock_guard<std::mutex> lock(m_calls->mutex);
         pendingSource = std::exchange(m_calls->pendingSource, std::nullopt);
+        run->storageOnDemand = m_calls->storageOnDemand;
     }
 
     if (pendingSource) {
@@ -544,7 +568,7 @@ void PackageDownloaderImpl::storageStarted(const std::shared_ptr<Run>& run,
     }
 }
 
-// Stopped (the Storage app, say): the next download starts it again.
+// Stopped (the Storage app, say). On demand, the next download starts it again.
 void PackageDownloaderImpl::storageStopped(const std::shared_ptr<Run>& run) {
     PendingLibCall call(*this);
 
@@ -553,9 +577,12 @@ void PackageDownloaderImpl::storageStopped(const std::shared_ptr<Run>& run) {
         return;
     }
 
-    if (!moveStorageState({kStorageRunning}, kStorageIdle, "")) {
-        moveStorageState({kStorageStarting}, kStorageFailed, "the storage node stopped");
+    if (run->storageOnDemand && moveStorageState({kStorageRunning}, kStorageIdle, "")) {
+        return;
     }
+
+    moveStorageState({kStorageRunning, kStorageStarting}, kStorageFailed,
+                     "the storage node stopped");
 }
 
 // storage_module unloaded or crashed.
@@ -578,8 +605,8 @@ void PackageDownloaderImpl::storageGone(const std::shared_ptr<Run>& run) {
     }
 }
 
-// storage_module is ready: the state says whether the node runs. It starts
-// only for a download.
+// storage_module is ready: the node starts now, or on demand with the first
+// download that needs it.
 void PackageDownloaderImpl::storageReady(const std::shared_ptr<Run>& run) {
     // Kept until the reply: aboutToUnload() waits for it.
     auto call = std::make_shared<PendingLibCall>(*this);
@@ -598,6 +625,11 @@ void PackageDownloaderImpl::storageReady(const std::shared_ptr<Run>& run) {
         m_calls->storageModuleReady = true;
     }
 
+    if (!run->storageOnDemand) {
+        launchStorage(run);
+        return;
+    }
+
     StorageNode node = makeStorageNode(modules());
     node.isRunning([this, call](bool running) {
         if (call->cancelled()) {
@@ -612,15 +644,24 @@ void PackageDownloaderImpl::storageReady(const std::shared_ptr<Run>& run) {
     });
 }
 
-// The fetcher's wait, on the download's worker: starts the node unless it runs
-// or is on its way, and answers "" once it runs.
+// The fetcher's wait, on the download's worker: on demand, starts the node
+// unless it runs or is on its way, and answers "" once it runs.
 std::string PackageDownloaderImpl::awaitStorage(const std::weak_ptr<Run>& weakRun,
                                                 std::chrono::milliseconds timeout) {
     // Kept: the destructor can run while a download waits.
     const std::shared_ptr<CallState> state = m_calls;
     const std::shared_ptr<Run> run = weakRun.lock();
 
-    if (!run || run->stopped) {
+    if (!run) {
+        return kStopped;
+    }
+
+    // Otherwise the node was started with the downloader: it runs or not.
+    if (!run->storageOnDemand) {
+        return {};
+    }
+
+    if (run->stopped) {
         return kStopped;
     }
 

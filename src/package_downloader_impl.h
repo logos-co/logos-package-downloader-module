@@ -63,8 +63,9 @@ public:
 
     // The downloader's use of the storage node: { state, error }. state is
     // "off" (stopped, or the source is "http"), "waiting" (for storage_module
-    // to be ready), "idle" (not running: the first download from a logos: url
-    // starts it), "starting", "running" or "failed" (error says why).
+    // to be ready), "idle" (on demand only: not running, and the next download
+    // from a logos: url starts it), "starting", "running" or "failed" (error
+    // says why).
     // storageStateChanged reports each change.
     LogosMap  getStorageState();
 
@@ -95,11 +96,16 @@ public:
 
     // Lifecycle. The module does nothing on load: a consumer calls start()
     // before its first call, and every other method answers "not started"
-    // until then. start() loads the repository config and watches
-    // storage_module; it is idempotent. The storage node starts only when a
-    // download from a logos: url needs it. stop() cancels the downloads in
-    // flight and lets go of the storage node, without stopping it. getState()
-    // returns "stopped" or "running", and stateChanged reports each change.
+    // until then. start() loads the repository config and, when
+    // storage_module is there, starts the storage node; it is idempotent.
+    // stop() cancels the downloads in flight and lets go of the storage node,
+    // without stopping it. getState() returns "stopped" or "running", and
+    // stateChanged reports each change.
+    //
+    // setStorageOnDemand(true), before start(), leaves the node off until a
+    // download from a logos: url needs it. That download starts it and waits
+    // up to 90 s for it; so does each one after a failed start or a stop.
+    LogosMap  setStorageOnDemand(bool onDemand);
     LogosMap  start();
     LogosMap  stop();
     std::string getState();
