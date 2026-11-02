@@ -1,18 +1,20 @@
-name: "The Package Downloader starts its Storage Node using default configuration."
+name: "The Package Downloader starts its Storage Node on request, using default configuration."
 output: package-downloader-default-node.md
 release: ""
 
 intro: |
   The package downloader needs a storage node running before it can serve a
-  `logos:<network>:<cid>` url, and it brings that node up itself when the storage module
-  is started. This tutorial proves it on the default configuration, kept off the
-  public network: the node gets no bootstrap nodes, and everything else, the data
-  directory included, comes from the defaults.
+  `logos:<network>:<cid>` url. It starts that node for the first download that needs
+  it, or sooner when a consumer calls `startStorage()`, as Basecamp does. This tutorial
+  proves the second on the default configuration, kept off the public network: the
+  node gets no bootstrap nodes, and everything else, the data directory included,
+  comes from the defaults.
 
 what_you_build: "A Logos daemon whose storage node was never started by hand."
 
 what_you_learn:
-  - How starting the downloader starts the storage node
+  - That starting the downloader leaves the storage node off
+  - How `startStorage()` starts it
   - Where the node configuration is read from, and how the defaults fill in the rest
 prerequisites:
   - |
@@ -98,7 +100,7 @@ sections:
         run: 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
         code_block: "HOME=$(pwd)/home logosctl --config-dir ./session -D --detach"
 
-  - title: "Starting the downloader starts the node"
+  - title: "Asking for the node starts it"
     step: true
     steps:
       - title: "The daemon starts the downloader"
@@ -119,30 +121,46 @@ sections:
         expect_contains:
           - '"success":true'
 
-      - title: "Start the node with the downloader"
+      - title: "The node waits for a download"
         text: |
-          A consumer picks when the node starts: with the downloader, as
-          Basecamp does, or with the first download that needs it, as logosctl
-          does (`setStorageOnDemand`, before `start()`). This tutorial follows
-          Basecamp, so we start the downloader again that way.
+          The downloader sees the storage module become ready, finds its node
+          not running and leaves it so: `idle` means the first download from a
+          `logos:` url starts it.
         run: |
           set -eu
 
-          for call in stop "setStorageOnDemand false" start; do
-            result=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader $call)
-            case "$result" in
-              *'"success":true'*) ;;
-              *) echo "$call: $result"; exit 1 ;;
-            esac
+          # The downloader reports the node once the storage module is ready
+          for _ in $(seq 30); do
+            state=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader getStorageState)
+            case "$state" in *'"idle"'*) break ;; esac
+            sleep 1
           done
 
-          echo "started with the node"
+          echo "$state"
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
         code_block: |
-          logosctl call package_downloader stop
-          logosctl call package_downloader setStorageOnDemand false
-          logosctl call package_downloader start
+          logosctl call package_downloader getStorageState
+          logosctl call storage_module isRunning
         expect_contains:
-          - "started with the node"
+          - '"state":"idle"'
+          - '"result":false'
+
+      - title: "Nothing was written to the storage home"
+        text: |
+          The node never started, so it created no data directory.
+        run: 'test ! -e home/.logos_storage/data && echo "no data directory"'
+        code_block: 'ls home/.logos_storage'
+        expect_contains:
+          - "no data directory"
+
+      - title: "Ask for the node"
+        text: |
+          A consumer that wants the node before its first download asks for it,
+          as Basecamp does when its source is not `http`.
+        run: './logosctl/bin/logosctl --config-dir ./session call package_downloader startStorage'
+        code_block: 'logosctl call package_downloader startStorage'
+        expect_contains:
+          - '"success":true'
 
       - title: "The node is running"
         text: |
@@ -213,9 +231,9 @@ sections:
   - title: "Shut down while the node starts"
     step: true
     text: |
-      Starting the downloader starts the node. Stopping the daemon right away,
-      while the node may still be starting, must still end cleanly: the daemon
-      exits, and nothing crashes.
+      Asking for the node starts it. Stopping the daemon right away, while the
+      node may still be starting, must still end cleanly: the daemon exits, and
+      nothing crashes.
     steps:
       - title: "Start the daemon and the downloader, and stop at once"
         run: |
@@ -223,6 +241,7 @@ sections:
 
           HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach
           ./logosctl/bin/logosctl --config-dir ./session call package_downloader start
+          ./logosctl/bin/logosctl --config-dir ./session call package_downloader startStorage
           # Not a terminal: status prints JSON.
           pid=$(./logosctl/bin/logosctl --config-dir ./session status | jq -r '.daemon.pid // empty')
           if [ -z "$pid" ]; then
@@ -251,6 +270,7 @@ sections:
         code_block: |
           HOME=$(pwd)/home logosctl --config-dir ./session -D --detach
           logosctl call package_downloader start
+          logosctl call package_downloader startStorage
           logosctl stop
         expect_contains:
           - "stopped cleanly"

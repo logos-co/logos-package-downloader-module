@@ -186,8 +186,8 @@ single-line declaration in the header into a provider method plus an auto-genera
 | `catalogChanged` | `void catalogChanged()` *(under `logos_events:`)* | Event signal fired on success from `addRepository` / `removeRepository` / `setRepositoryEnabled`, and from `setDownloadSource` when the source changes. Also fired, once per `lib->catalogRevision()`, when the catalog the lib serves moved under a call: a `refreshCatalog` that fetched something different, or any catalog, resolve or download call that read an index whose earlier fetch failed. Subscribers re-fetch via `listRepositories()` / `getCatalog()`, so every consumer holds the same copy |
 | `downloadProgress` | `void downloadProgress(const std::string& packageName, uint64_t received, uint64_t total)` *(under `logos_events:`)* | Event fired while a package downloads, with the bytes received so far and the total size. `total` is 0 when the size is unknown |
 | `downloadDone` | `void downloadDone(const std::string& packageName, const std::string& source)` *(under `logos_events:`)* | Event fired when a package has downloaded, from `downloadPinned` and `downloadResolvedDependencies`. `source` is the HTTPS URL, or `logos:<network>:<cid>` when the storage node served the package |
-| `setStorageOnDemand` | `LogosMap setStorageOnDemand(bool onDemand)` | Before `start()`, taken by the next one: `true` leaves the node off until a download from a `logos:` URL needs it. Returns `{success, error?}`; refused once started |
-| `start` | `LogosMap start()` | Build the library on `<instancePersistencePath>/repositories.json` (the XDG fallback outside a host), install the storage fetcher and watch for `storage_module`. Returns `{success, error?}`; idempotent. Every other method is refused with `the downloader is not started` before it |
+| `start` | `LogosMap start()` | Build the library on `<instancePersistencePath>/repositories.json` (the XDG fallback outside a host), install the storage fetcher and watch for `storage_module`, without starting the node. Returns `{success, error?}`; idempotent. Every other method is refused with `the downloader is not started` before it |
+| `startStorage` | `LogosMap startStorage()` | Ask for the storage node before a download needs it: started now if `storage_module` is ready, else on its ready, and again on every later ready until the next `start()`. Returns `{success, error?}`; refused before `start()` and under `"http"` |
 | `stop` | `LogosMap stop()` | Drop the library, cancel the storage watch and fail the downloads in flight. The storage node keeps running. Returns `{success, error?}` |
 | `getState` | `std::string getState()` | `"stopped"` or `"running"` |
 | `stateChanged` | `void stateChanged(const std::string& state)` *(under `logos_events:`)* | Event fired when `start()` or `stop()` changes the state, with the new one (`"running"` or `"stopped"`). Not fired by a call that changes nothing, nor by an unload |
@@ -215,30 +215,26 @@ single-line declaration in the header into a provider method plus an auto-genera
   its downloads. A call holds its own share of the `Run`, so one in flight finishes on
   the library it started with. `start()` and `stop()` are serialised by a mutex the main
   thread never takes: they run on workers, and subscribing may wait for the main thread.
-- **Storage node lifecycle.** `start()` starts the node. It
+- **Storage node lifecycle.** `start()` watches the node but never starts it. It
   subscribes to `modules_state.module_state_changed` and then asks `is_ready` once, since
   a transition that already happened is not replayed; either path calls `storageReady()`,
-  whose `launchStorage()` runs `loadConfigOrDefault` → `init` → `start` on
-  `storage_module` with async calls.
-  The node start runs on every `ready`, so a `storage_module` that restarted gets its node
-  back; a second start is refused by `storage_module` itself. The storage fetcher is built
-  per `start()` and installed in the library before any call is served:
-  `setStorageFetcher` takes the library's lock, which a first catalog fetch holds across
-  the network. It subscribes to `storage_module`'s events on the first `ready`, so a host
-  without the module keeps no pending subscriptions. The fetcher checks the storage module
-  and the node on every download.
-  A download never starts the node: it is shared, and the storage UI may have stopped it
-  on purpose. A node that is down answers an empty network, and the library falls back
-  to HTTPS.
-- **Storage node on demand.** After `setStorageOnDemand(true)`, `storageReady()` only
-  asks `isRunning` and reports `"running"` or `"idle"`. The node starts in the fetcher's
-  `canHandle()` for a `logos:` URL, on the download's worker: `awaitStorage()` runs
-  `launchStorage()` when the state is `"idle"` or `"failed"`, then waits on a condition
-  variable for `"running"`, a failure, a stop or the 90 s timeout, rechecking `isRunning`
-  every 5 s in case `storageStart` was missed. A start already under way is waited for,
-  not repeated. The wait returns at once when `storage_module` is not ready or the source
-  is `"http"`, so a host without the module holds no download, and the library takes no
-  lock across it. A node stopped elsewhere goes back to `"idle"`.
+  which asks `isRunning` and reports `"running"` or `"idle"`. The node starts in the
+  fetcher's `canHandle()` for a `logos:` URL, on the download's worker: `awaitStorage()`
+  runs `launchStorage()` (`loadConfigOrDefault` → `init` → `start` on `storage_module`,
+  async) when the state is `"idle"` or `"failed"`, then waits on a condition variable for
+  `"running"`, a failure, a stop or the 90 s timeout, rechecking `isRunning` every 5 s in
+  case `storageStart` was missed. A start already under way is waited for, not repeated.
+  The wait returns at once when `storage_module` is not ready or the source is `"http"`,
+  so a host without the module holds no download. The library takes no lock across that
+  call. The storage fetcher is built per `start()` and installed in the library before any
+  call is served: `setStorageFetcher` takes the library's lock, which a first catalog fetch
+  holds across the network. It subscribes to `storage_module`'s events on the first
+  `ready`, so a host without the module keeps no pending subscriptions. A node stopped
+  elsewhere (the Storage app) goes back to `"idle"`, and the next download starts it
+  again. `startStorage()` sets a flag for the run: `storageReady()` then calls
+  `launchStorage()` instead of asking `isRunning`, on every `ready`, as a restarted
+  `storage_module` needs. A call while that probe is out leaves the start to the probe's
+  answer.
 - **Unload.** `aboutToUnload()` refuses new calls, stops every event, fails the storage
   waits and stops a node start in progress, then returns `Asynchronous` while calls are in
   flight. The library checks the unload flag during HTTPS transfers and removes partial
