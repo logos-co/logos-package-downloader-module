@@ -12,6 +12,10 @@ std::function<void(const std::string&)> fireStorageStopped;
 
 int fakeFetcherSubscriptions = 0;
 
+std::weak_ptr<StorageFetcher> fakeStorageFetcher;
+std::string fakeStorageNetwork = "logos.test";
+std::chrono::milliseconds fakeStorageStartTimeout(100);
+
 // By default both calls succeed and touch nothing.
 StorageNode fakeStorageNode = []() {
     StorageNode node;
@@ -24,16 +28,22 @@ StorageNode fakeStorageNode = []() {
     return node;
 }();
 
-// A real fetcher over a storage_module that is never running.
-std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules&) {
+// A real fetcher over a storage_module whose transfers never run.
+std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules&,
+                                                   StorageFetcher::AwaitNode awaitNode) {
     auto subscribe = [](std::function<void(const std::string&)>) {
         ++fakeFetcherSubscriptions;
         return StorageFetcher::Unsubscribe([]() {});
     };
 
-    return std::make_shared<StorageFetcher>(
+    auto fetcher = std::make_shared<StorageFetcher>(
         nullptr, subscribe, subscribe, nullptr, nullptr, subscribe,
-        []() { return false; }, []() { return std::string(); });
+        []() { return false; }, []() { return fakeStorageNetwork; },
+        std::chrono::seconds(60), std::chrono::seconds(60),
+        std::move(awaitNode), fakeStorageStartTimeout);
+
+    fakeStorageFetcher = fetcher;
+    return fetcher;
 }
 
 std::string makeNetwork(LogosModules&) {

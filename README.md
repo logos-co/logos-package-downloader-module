@@ -21,14 +21,27 @@ Loading the module does nothing: it reads no configuration and leaves
 every other method is refused with `the downloader is not started` until then
 (the list getters answer empty). The exception is `setDownloadSource()`: before
 `start()` it is held and saved by `start()`, so a first run can pick `"http"`
-before the storage node could come up.
+before the downloader watches the storage node.
+
+The storage node starts only when a download needs it: the first download that
+picks a `logos:` URL starts the node if it is not running, and waits up to 90 s
+for it. Under `"any"` a node that does not come up in time falls back to HTTPS;
+under `"logos"` the download fails. A failed start is tried again by the next
+download, and so is a node stopped in the Storage app.
+
+A consumer that wants the node sooner calls `startStorage()` after `start()`.
+The node then starts at once, or as soon as `storage_module` is ready, and
+again whenever `storage_module` comes back, until `stop()`. A switch to `"http"`
+and back keeps the request. Basecamp asks for the node this way when its source
+is not `"http"`; logosctl leaves it to the first download.
 
 | Method | Return | Description |
 |--------|--------|-------------|
-| `start()` | `QVariantMap` | Load the repository configuration and, when `storage_module` is loaded and the download source is not `"http"`, start the storage node. Idempotent: a second call succeeds and does nothing |
+| `start()` | `QVariantMap` | Load the repository configuration and, when the download source is not `"http"`, watch `storage_module`. It does not start the node. Idempotent: a second call succeeds and does nothing |
+| `startStorage()` | `QVariantMap` | Start the storage node now, or once `storage_module` is ready, and again each time it comes back, until `stop()`. Refused before `start()` and under `"http"` |
 | `stop()` | `QVariantMap` | Cancel the downloads in flight and let go of the storage node, without stopping it: it is shared |
 | `getState()` | `QString` | `"stopped"` or `"running"` |
-| `getStorageState()` | `QVariantMap` | `{ state, error }`: the downloader's use of the storage node. `state` is `"off"` (stopped, or the source is `"http"`), `"waiting"` (for `storage_module` to be ready), `"starting"`, `"running"` or `"failed"`, with `error` saying why |
+| `getStorageState()` | `QVariantMap` | `{ state, error }`: the downloader's use of the storage node. `state` is `"off"` (stopped, or the source is `"http"`), `"waiting"` (for `storage_module` to be ready), `"idle"` (not running; the next download from a `logos:` URL starts it), `"starting"`, `"running"` or `"failed"`, with `error` saying why |
 
 `stateChanged(state)` is emitted when `start()` or `stop()` changes the state,
 with the new one (`"running"` or `"stopped"`). A call that changes nothing emits
@@ -36,7 +49,9 @@ nothing, and neither does an unload.
 
 `storageStateChanged(state, error)` is emitted on each change of
 `getStorageState()`. Switching the source to `"http"` lets go of the node
-(`"off"`) without stopping it; switching back starts it again.
+(`"off"`) without stopping it; switching back watches it again (`"idle"`, or
+`"running"` if something else started it, or `"starting"` after `startStorage()`).
+A node stopped elsewhere goes back to `"idle"`.
 
 ### Repositories
 
@@ -131,7 +146,7 @@ Direct flake inputs (`flake.nix`):
 
 - `logos-module-builder` — provides `mkLogosModule`, the Qt plugin glue generator, and brings in `logos-cpp-sdk` + `logos-module` transitively.
 - `logos-package-downloader` — the underlying C++ download library (plain C++ + libcurl), staged into `lib/` at build time and linked into the plugin.
-- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` optional dependency; `start()` configures and starts the node (`startStorage`).
+- `storage_module` — the storage node, reached through the generated `modules().storage_module` client. The input name matches the `metadata.json` optional dependency; the first download from a `logos:` URL, or `startStorage()`, configures and starts the node (`launchStorage`).
 - `modules_state` — tells the downloader when `storage_module` is ready, through `modules().modules_state`. Also an optional dependency in `metadata.json`.
 
 Resolved transitively through the builder:

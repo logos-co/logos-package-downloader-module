@@ -31,7 +31,8 @@ StorageFetcher::Unsubscribe unsubscribeOf(const logos::SubHandle& handle) {
 
 }
 
-std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules) {
+std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules,
+                                                   StorageFetcher::AwaitNode awaitNode) {
     StorageFetcher::DownloadToUrl downloadToUrl =
         [&modules](const std::string& cid, const std::string& path) {
             const StdLogosResult r =
@@ -82,7 +83,9 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules) {
     return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone,
                                             onStorageDownloadProgress, downloadCancel,
                                             downloadManifest, onStorageDownloadManifestDone,
-                                            nodeRunning, network);
+                                            nodeRunning, network,
+                                            std::chrono::seconds(60), std::chrono::seconds(60),
+                                            std::move(awaitNode));
 }
 
 std::string makeNetwork(LogosModules& modules) {

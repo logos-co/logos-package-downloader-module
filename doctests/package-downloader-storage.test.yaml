@@ -10,7 +10,7 @@ intro: |
 what_you_build: "A release-like environment to download a file over Logos Storage with the package downloader."
 
 what_you_learn:
-  - How the package downloader starts the storage node it needs
+  - How the first download over Logos Storage starts the storage node
   - How a release publishes a package to a storage node
   - How a catalog advertises that package over two protocols in its `urls` entry
   - How to follow a download's progress with `logosctl watch`
@@ -313,9 +313,10 @@ sections:
       The daemon loads the package downloader at start, and the storage module
       with it.
 
-      The downloader brings the storage node up itself. The storage module
-      manages the node configuration in `$HOME/.logos_storage/config.json`: it
-      reads it before `init` and saves it after.
+      The downloader brings the storage node up itself, for the first download
+      that needs it. The storage module manages the node configuration in
+      `$HOME/.logos_storage/config.json`: it reads it before `init` and saves it
+      after.
 
       `logosctl` is both the Logos daemon and its client; `lgpm` installs
       `.lgx` packages into a modules directory.
@@ -406,39 +407,31 @@ sections:
         expect_contains:
           - '"success":true'
 
-      - title: "The downloader starts the node"
+      - title: "The node waits for a download"
         text: |
-          The daemon loads the storage module at start,
-          and starting the downloader starts the node.
+          The daemon loads the storage module at start. The downloader leaves
+          its node off: the first download from a `logos:` URL starts it. Its
+          data directory is still empty.
         run: |
           set -eu
 
-          # The node takes a few seconds to join the network
+          # The downloader reports the node once the storage module is ready
           for _ in $(seq 30); do
-            running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
-            case "$running" in *'"result":true'*) break ;; esac
+            state=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader getStorageState)
+            case "$state" in *'"idle"'*) break ;; esac
             sleep 1
           done
 
-          echo "$running"
-        code_block: 'logosctl call storage_module isRunning'
+          echo "$state"
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+          test -z "$(ls -A storage-data)" && echo "empty data directory"
+        code_block: |
+          logosctl call package_downloader getStorageState
+          logosctl call storage_module isRunning
         expect_contains:
-          - "true"
-
-      - title: "Check the network the node reports"
-        text: |
-          The downloader compares this to the network in `logos:<network>:<cid>`. They
-          have to be equal, or the CID is ignored and the HTTPS URL is used instead.
-        run: './logosctl/bin/logosctl --config-dir ./session call storage_module network'
-        code_block: 'logosctl call storage_module network'
-        expect_contains:
-          - "logos.dev"
-
-      - title: "Ensure that the package does not exist on the Storage node"
-        run: './logosctl/bin/logosctl --config-dir ./session call storage_module exists "$(cat cid.txt)"'
-        code_block: 'logosctl call storage_module exists "$(cat cid.txt)"'
-        expect_contains:
-          - '"value":false'
+          - '"state":"idle"'
+          - '"result":false'
+          - "empty data directory"
 
   - title: "Download the package through the Storage network"
     step: true
@@ -574,6 +567,22 @@ sections:
         expect_contains:
           - "true"
 
+      - title: "The download started the node"
+        text: |
+          The downloader compares the node's network to the one in
+          `logos:<network>:<cid>`. They have to be equal, or the CID is ignored
+          and the HTTPS URL is used instead.
+        run: |
+          set -eu
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module network
+        code_block: |
+          logosctl call storage_module isRunning
+          logosctl call storage_module network
+        expect_contains:
+          - '"result":true'
+          - "logos.dev"
+
       - title: "Verify the downloaded file exists"
         run: 'ls -l "$(cat path.txt)"'
         expect_contains:
@@ -662,25 +671,24 @@ sections:
     steps:
       - title: "Load the storage module again"
         text: |
-          The downloader starts the node again on its own, as it did the first
-          time.
+          The downloader watches it again, and leaves the node off until the
+          next download, as it did the first time.
         run: |
           set -eu
           ./logosctl/bin/logosctl --config-dir ./session module load storage_module
 
-          # The node takes a few seconds to join the network
           for _ in $(seq 30); do
-            running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
-            case "$running" in *'"result":true'*) break ;; esac
+            state=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader getStorageState)
+            case "$state" in *'"idle"'*) break ;; esac
             sleep 1
           done
 
-          echo "$running"
+          echo "$state"
         code_block: |
           logosctl module load storage_module
-          logosctl call storage_module isRunning
+          logosctl call package_downloader getStorageState
         expect_contains:
-          - "true"
+          - '"state":"idle"'
 
       - title: "Take the HTTPS URL offline again"
         text: |
@@ -705,8 +713,13 @@ sections:
 
           jq -er '.result.path' download-storage-again.json > storage-again-path.txt
           ls -l "$(cat storage-again-path.txt)"
+
+          # The download started the node again
+          ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
         code_block: |
           logosctl call package_downloader downloadPinned "doctest-catalog" package_downloader "" ""
+        expect_contains:
+          - '"result":true'
         check_file: "storage-again-path.txt"
 
   - title: "Fall back to HTTPS when the storage download fails"

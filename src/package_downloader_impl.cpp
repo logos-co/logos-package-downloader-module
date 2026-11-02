@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -68,6 +70,9 @@ const char* const kNotStarted = "the downloader is not started: call start() fir
 // Why a stop() fails the storage downloads in flight.
 const char* const kStopped = "the downloader was stopped";
 
+// Why a download does not wait for the storage node.
+const char* const kHttpOnly = "the download source is http";
+
 // The states getState() answers and stateChanged reports.
 const char* const kStateRunning = "running";
 const char* const kStateStopped = "stopped";
@@ -75,6 +80,7 @@ const char* const kStateStopped = "stopped";
 // The states getStorageState() answers and storageStateChanged reports.
 const char* const kStorageOff = "off";
 const char* const kStorageWaiting = "waiting";
+const char* const kStorageIdle = "idle";
 const char* const kStorageStarting = "starting";
 const char* const kStorageRunning = "running";
 const char* const kStorageFailed = "failed";
@@ -241,6 +247,17 @@ struct PackageDownloaderImpl::CallState {
 
     std::string storageState = kStorageOff;
     std::string storageError;
+
+    // startStorage() asked for the node: every storage_module ready starts it,
+    // until the next start().
+    bool storageWanted = false;
+
+    // storage_module is ready, as the watch last said.
+    bool storageModuleReady = false;
+
+    // Notified on each storage state change and on unload: a download waiting
+    // for the node wakes on it.
+    std::condition_variable storageChanged;
 };
 
 class PackageDownloaderImpl::PendingLibCall {
@@ -292,6 +309,8 @@ PackageDownloaderImpl::~PackageDownloaderImpl() {
     if (run) {
         run->stop(kUnloading);
     }
+
+    m_calls->storageChanged.notify_all();
 }
 
 LogosMap PackageDownloaderImpl::start() {
@@ -321,6 +340,7 @@ LogosMap PackageDownloaderImpl::start() {
     {
         std::lock_guard<std::mutex> lock(m_calls->mutex);
         pendingSource = std::exchange(m_calls->pendingSource, std::nullopt);
+        m_calls->storageWanted = false;
     }
 
     if (pendingSource) {
@@ -335,7 +355,13 @@ LogosMap PackageDownloaderImpl::start() {
     // Before any call is served: setStorageFetcher then never waits on the
     // lib's lock, which a first catalog fetch holds across the network.
     if (isContextReady()) {
-        run->storageFetcher = makeStorageFetcher(modules());
+        // Weak: the run owns the fetcher.
+        std::weak_ptr<Run> weakRun = run;
+
+        run->storageFetcher = makeStorageFetcher(modules(),
+            [this, weakRun](std::chrono::milliseconds timeout) {
+                return awaitStorage(weakRun, timeout);
+            });
         run->lib->setStorageFetcher(run->storageFetcher);
     }
 
@@ -393,11 +419,40 @@ std::string PackageDownloaderImpl::getState() {
     return m_calls->run && !m_calls->unloading ? kStateRunning : kStateStopped;
 }
 
-void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
+LogosMap PackageDownloaderImpl::startStorage() {
+    PendingLibCall call(*this);
+
+    if (!call) {
+        return makeResult(call.refusal());
+    }
+
+    const std::shared_ptr<Run> run = call.run();
+
+    if (run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
+        return makeResult(kHttpOnly);
+    }
+
+    bool launch = false;
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        m_calls->storageWanted = true;
+        launch = m_calls->storageModuleReady
+            && (m_calls->storageState == kStorageIdle || m_calls->storageState == kStorageFailed);
+    }
+
+    // Otherwise storage_module's ready, or the probe under way, starts it.
+    if (launch) {
+        launchStorage(run);
+    }
+
+    return makeResult("");
+}
+
+void PackageDownloaderImpl::launchStorage(const std::shared_ptr<Run>& run) {
     // Kept until the last reply: aboutToUnload() waits for it.
     auto call = std::make_shared<PendingLibCall>(*this);
 
-    // Stopped, or restarted, since the watch fired; or switched to "http".
+    // Stopped, or restarted, since it was asked for; or switched to "http".
     if (!*call || call->run() != run
         || run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
         return;
@@ -417,12 +472,10 @@ void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
         m_calls->storageError.clear();
     }
 
+    m_calls->storageChanged.notify_all();
+
     if (!call->unloading()) {
         storageStateChanged(kStorageStarting, "");
-    }
-
-    if (run->storageFetcher) {
-        run->storageFetcher->subscribe();
     }
 
     StorageNode node = makeStorageNode(modules());
@@ -430,7 +483,7 @@ void PackageDownloaderImpl::startStorage(const std::shared_ptr<Run>& run) {
 
     startStorageNode(node, [this, call, run](const std::string& error) {
         if (!error.empty()) {
-            fprintf(stderr, "PackageDownloaderImpl::startStorage: %s\n", error.c_str());
+            fprintf(stderr, "PackageDownloaderImpl::launchStorage: %s\n", error.c_str());
         }
 
         if (call->cancelled()) {
@@ -472,6 +525,7 @@ bool PackageDownloaderImpl::moveStorageState(std::initializer_list<const char*> 
         m_calls->storageError = error;
     }
 
+    m_calls->storageChanged.notify_all();
     storageStateChanged(to, error);
     return true;
 }
@@ -515,15 +569,16 @@ void PackageDownloaderImpl::storageStarted(const std::shared_ptr<Run>& run,
     }
 
     if (success) {
-        // From failed too: another consumer may have brought it up since.
-        moveStorageState({kStorageStarting, kStorageWaiting, kStorageFailed}, kStorageRunning, "");
+        // From idle and failed too: another consumer may have brought it up.
+        moveStorageState({kStorageStarting, kStorageWaiting, kStorageIdle, kStorageFailed},
+                         kStorageRunning, "");
     } else {
         moveStorageState({kStorageStarting}, kStorageFailed,
                          message.empty() ? std::string("the storage node did not start") : message);
     }
 }
 
-// Stopped (the Storage app, say), unloaded or crashed while in use.
+// Stopped (the Storage app, say): the next download starts it again.
 void PackageDownloaderImpl::storageStopped(const std::shared_ptr<Run>& run) {
     PendingLibCall call(*this);
 
@@ -532,16 +587,175 @@ void PackageDownloaderImpl::storageStopped(const std::shared_ptr<Run>& run) {
         return;
     }
 
-    moveStorageState({kStorageRunning, kStorageStarting}, kStorageFailed,
-                     "the storage node stopped");
+    if (!moveStorageState({kStorageRunning}, kStorageIdle, "")) {
+        moveStorageState({kStorageStarting}, kStorageFailed, "the storage node stopped");
+    }
 }
 
-// Waits for storage_module to be ready, then starts the node. Again after a
-// switch away from "http": the watch's armed replay starts it at once if
+// storage_module unloaded or crashed.
+void PackageDownloaderImpl::storageGone(const std::shared_ptr<Run>& run) {
+    PendingLibCall call(*this);
+
+    if (!call || call.run() != run
+        || run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        m_calls->storageModuleReady = false;
+    }
+
+    if (!moveStorageState({kStorageRunning, kStorageStarting}, kStorageFailed,
+                          "the storage node stopped")) {
+        moveStorageState({kStorageIdle}, kStorageFailed, "storage_module is not loaded");
+    }
+}
+
+// storage_module is ready: the node starts now if startStorage() asked for it,
+// or else with the first download that needs it.
+void PackageDownloaderImpl::storageReady(const std::shared_ptr<Run>& run) {
+    // Kept until the reply: aboutToUnload() waits for it.
+    auto call = std::make_shared<PendingLibCall>(*this);
+
+    if (!*call || call->run() != run
+        || run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
+        return;
+    }
+
+    if (run->storageFetcher) {
+        run->storageFetcher->subscribe();
+    }
+
+    bool wanted = false;
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        m_calls->storageModuleReady = true;
+        wanted = m_calls->storageWanted;
+    }
+
+    // Again on each ready: a storage_module that restarted gets its node back.
+    if (wanted) {
+        launchStorage(run);
+        return;
+    }
+
+    StorageNode node = makeStorageNode(modules());
+    node.isRunning([this, call, run](bool running) {
+        if (call->cancelled()) {
+            return;
+        }
+
+        if (running) {
+            moveStorageState({kStorageWaiting, kStorageIdle, kStorageFailed}, kStorageRunning, "");
+            return;
+        }
+
+        moveStorageState({kStorageWaiting, kStorageFailed}, kStorageIdle, "");
+
+        // A startStorage() during the probe found "waiting" and left the start here.
+        bool launch = false;
+        {
+            std::lock_guard<std::mutex> lock(m_calls->mutex);
+            launch = m_calls->storageWanted && m_calls->storageState == kStorageIdle;
+        }
+
+        if (launch) {
+            launchStorage(run);
+        }
+    });
+}
+
+// The fetcher's wait, on the download's worker: starts the node unless it runs
+// or is on its way, and answers "" once it runs.
+std::string PackageDownloaderImpl::awaitStorage(const std::weak_ptr<Run>& weakRun,
+                                                std::chrono::milliseconds timeout) {
+    // Kept: the destructor can run while a download waits.
+    const std::shared_ptr<CallState> state = m_calls;
+    const std::shared_ptr<Run> run = weakRun.lock();
+
+    if (!run || run->stopped) {
+        return kStopped;
+    }
+
+    if (run->lib->registry().downloadSource() == lgpd::DownloadSource::Http) {
+        return kHttpOnly;
+    }
+
+    std::string before;
+    bool ready = false;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        before = state->storageState;
+        ready = state->storageModuleReady;
+    }
+
+    // A host without storage_module must not hold every download.
+    if (!ready || before == kStorageWaiting || before == kStorageOff) {
+        return "storage_module is not ready";
+    }
+
+    // Failed: each download tries again.
+    if (before == kStorageIdle || before == kStorageFailed) {
+        launchStorage(run);
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    std::unique_lock<std::mutex> lock(state->mutex);
+
+    while (true) {
+        if (state->unloading) {
+            return kUnloading;
+        }
+
+        if (run->stopped) {
+            return kStopped;
+        }
+
+        const std::string& current = state->storageState;
+
+        if (current == kStorageRunning) {
+            return {};
+        }
+
+        if (current == kStorageFailed) {
+            return state->storageError.empty() ? "the storage node did not start" : state->storageError;
+        }
+
+        if (current == kStorageOff || current == kStorageWaiting) {
+            return "storage_module is not ready";
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+
+        if (now >= deadline) {
+            return "the storage node did not start within "
+                + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(timeout).count())
+                + " s";
+        }
+
+        state->storageChanged.wait_until(lock, std::min(deadline, now + std::chrono::seconds(5)));
+
+        // A storageStart sent before the subscription armed never arrives.
+        if (state->storageState == kStorageStarting && !state->unloading && !run->stopped) {
+            lock.unlock();
+            confirmStorageRunning(run);
+            lock.lock();
+        }
+    }
+}
+
+// Follows storage_module's ready and the node's own events. Again after a
+// switch away from "http": the watch's armed replay reports at once if
 // storage_module is ready already.
 void PackageDownloaderImpl::watchStorage(const std::shared_ptr<Run>& run) {
     if (!isContextReady()) {
         return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_calls->mutex);
+        m_calls->storageModuleReady = false;
     }
 
     setStorageState(kStorageWaiting, "");
@@ -553,12 +767,12 @@ void PackageDownloaderImpl::watchStorage(const std::shared_ptr<Run>& run) {
         modules(),
         [this, weakRun]() {
             if (std::shared_ptr<Run> current = weakRun.lock()) {
-                startStorage(current);
+                storageReady(current);
             }
         },
         [this, weakRun]() {
             if (std::shared_ptr<Run> current = weakRun.lock()) {
-                storageStopped(current);
+                storageGone(current);
             }
         });
 
@@ -594,6 +808,7 @@ void PackageDownloaderImpl::setStorageState(const std::string& state, const std:
         m_calls->storageError = error;
     }
 
+    m_calls->storageChanged.notify_all();
     storageStateChanged(state, error);
 }
 
@@ -629,6 +844,8 @@ LogosShutdown PackageDownloaderImpl::aboutToUnload() {
         m_calls->unloading = true;
         run = m_calls->run;
     }
+
+    m_calls->storageChanged.notify_all();
 
     if (run) {
         run->stop(kUnloading);
