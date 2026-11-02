@@ -2,6 +2,7 @@
 
 #include "storage_node.h"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -11,7 +12,8 @@ class StorageFetcher;
 // Generated per module in logos_sdk.h.
 struct LogosModules;
 
-std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules);
+// awaitNode is the fetcher's: it brings the node up for a logos: url.
+std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules, std::function<std::string(std::chrono::milliseconds)> awaitNode);
 
 std::string makeNetwork(LogosModules& modules);
 

@@ -27,9 +27,14 @@ public:
     using NodeRunning = std::function<bool()>;
     using Network = std::function<std::string()>;
 
+    // Brings the node up if need be and waits for it, up to the timeout: ""
+    // once it runs, otherwise why it cannot be used.
+    using AwaitNode = std::function<std::string(std::chrono::milliseconds timeout)>;
+
     // Default timeout for the manifest: 60 seconds.
     // The transfer has no total limit: it gives up
     // after 60 seconds without a progress event.
+    // A node that is not running gets 90 seconds to start.
     StorageFetcher(
         DownloadToUrl downloadToUrl,
         OnStorageDownloadDone onStorageDownloadDone,
@@ -40,7 +45,9 @@ public:
         NodeRunning nodeRunning,
         Network network,
         std::chrono::milliseconds stallTimeout = std::chrono::seconds(60),
-        std::chrono::milliseconds manifestTimeout = std::chrono::seconds(60));
+        std::chrono::milliseconds manifestTimeout = std::chrono::seconds(60),
+        AwaitNode awaitNode = {},
+        std::chrono::milliseconds startTimeout = std::chrono::seconds(90));
 
     ~StorageFetcher() override;
 
@@ -51,6 +58,8 @@ public:
     // Fails the downloads in flight with `reason`, and every later one.
     void cancelPendingDownloads(const std::string& reason = "the module is unloading");
 
+    // For a logos: url, starts the node first and waits for it (awaitNode):
+    // the network is known only once it runs.
     bool canHandle(const std::string& url) const override;
 
     lgpd::FetchResult get(const std::string& cid, std::string& out) override;
@@ -83,9 +92,11 @@ private:
     OnStorageDownloadManifestDone m_onStorageDownloadManifestDone;
     NodeRunning m_nodeRunning;
     Network m_network;
+    AwaitNode m_awaitNode;
 
     std::chrono::milliseconds m_stallTimeout;
     std::chrono::milliseconds m_manifestTimeout;
+    std::chrono::milliseconds m_startTimeout;
 
     std::mutex m_mutex;
 

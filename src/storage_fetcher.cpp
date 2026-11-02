@@ -21,7 +21,9 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
                                NodeRunning nodeRunning,
                                Network network,
                                std::chrono::milliseconds stallTimeout,
-                               std::chrono::milliseconds manifestTimeout)
+                               std::chrono::milliseconds manifestTimeout,
+                               AwaitNode awaitNode,
+                               std::chrono::milliseconds startTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
     , m_downloadCancel(std::move(downloadCancel))
     , m_downloadManifest(std::move(downloadManifest))
@@ -30,8 +32,10 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
     , m_onStorageDownloadManifestDone(std::move(onStorageDownloadManifestDone))
     , m_nodeRunning(std::move(nodeRunning))
     , m_network(std::move(network))
+    , m_awaitNode(std::move(awaitNode))
     , m_stallTimeout(stallTimeout)
     , m_manifestTimeout(manifestTimeout)
+    , m_startTimeout(startTimeout)
 {
 }
 
@@ -175,11 +179,23 @@ lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) 
 }
 
 bool StorageFetcher::canHandle(const std::string& url) const {
+    if (url.rfind("logos:", 0) != 0) {
+        return false;
+    }
+
+    // The node starts on the first download that needs it.
+    if (m_awaitNode) {
+        if (const std::string error = m_awaitNode(m_startTimeout); !error.empty()) {
+            fprintf(stderr, "StorageFetcher: skipping %s: %s\n", url.c_str(), error.c_str());
+            return false;
+        }
+    }
+
     const std::string network = m_network();
     const bool handled = !network.empty() && url.rfind("logos:" + network + ":", 0) == 0;
 
     // Otherwise the lib skips Logos Storage without a trace.
-    if (!handled && url.rfind("logos:", 0) == 0) {
+    if (!handled) {
         fprintf(stderr, "StorageFetcher: skipping %s: the storage node is on network '%s'\n",
                 url.c_str(), network.empty() ? "<unknown>" : network.c_str());
     }

@@ -18,9 +18,13 @@
 #include "mocks/mock_storage_fetcher_factory.h"
 
 #include <package_downloader_lib.h>
+#include "storage_fetcher.h"
 
+#include <chrono>
 #include <functional>
+#include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 // ── Repository management ────────────────────────────────────────────────
@@ -453,6 +457,13 @@ StorageNode fakeNode(bool& started) {
     return node;
 }
 
+// Plays the lib picking a logos: url for a download: true once the node runs,
+// on the network the url names.
+bool downloadFromLogos() {
+    const std::shared_ptr<StorageFetcher> fetcher = fakeStorageFetcher.lock();
+    return fetcher && fetcher->canHandle("logos:" + fakeStorageNetwork + ":cid-1");
+}
+
 } // namespace
 
 // Loading the module touches neither the config nor storage_module.
@@ -498,7 +509,8 @@ LOGOS_TEST(storage_ready_after_stop_starts_nothing) {
     LOGOS_ASSERT_FALSE(started);
 }
 
-LOGOS_TEST(storage_ready_starts_the_node) {
+// Nothing needs the node yet: the first download from a logos: url starts it.
+LOGOS_TEST(storage_ready_leaves_the_node_off) {
     auto t = LogosTestContext("package_downloader");
     bool started = false;
     const StorageNode defaultNode = fakeStorageNode;
@@ -513,7 +525,30 @@ LOGOS_TEST(storage_ready_starts_the_node) {
     // reference to `started`.
     fakeStorageNode = defaultNode;
 
-    LOGOS_ASSERT_TRUE(started);
+    LOGOS_ASSERT_FALSE(started);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("idle"));
+}
+
+// Started by the Storage app, say: the downloader uses it as it is.
+LOGOS_TEST(storage_ready_reports_a_node_already_running) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = true;
+    int starts = 0;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    fakeStorageNode.start = [&starts](std::function<void(bool)> done) {
+        ++starts;
+        done(true);
+    };
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+
+    fireStorageReady();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_EQ(starts, 0);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("running"));
 }
 
 // Nothing to subscribe to before the module is there: a host without it
@@ -821,7 +856,7 @@ LOGOS_TEST(an_unknown_source_before_start_is_refused) {
     LOGOS_ASSERT_EQ(impl.getDownloadSource(), std::string());
 }
 
-LOGOS_TEST(storage_state_reports_waiting_starting_running) {
+LOGOS_TEST(storage_state_reports_waiting_idle_starting_running) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     bool started = false;
@@ -832,13 +867,16 @@ LOGOS_TEST(storage_state_reports_waiting_starting_running) {
 
     impl.start();
     fireStorageReady();
+    const bool usable = downloadFromLogos();
     fakeStorageNode = defaultNode;
 
+    LOGOS_ASSERT_TRUE(usable);
     const std::vector<std::string> states = storageStates(events);
-    LOGOS_ASSERT_EQ(states.size(), static_cast<size_t>(3));
+    LOGOS_ASSERT_EQ(states.size(), static_cast<size_t>(4));
     LOGOS_ASSERT_EQ(states[0], std::string("waiting"));
-    LOGOS_ASSERT_EQ(states[1], std::string("starting"));
-    LOGOS_ASSERT_EQ(states[2], std::string("running"));
+    LOGOS_ASSERT_EQ(states[1], std::string("idle"));
+    LOGOS_ASSERT_EQ(states[2], std::string("starting"));
+    LOGOS_ASSERT_EQ(states[3], std::string("running"));
     LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("running"));
 }
 
@@ -853,6 +891,7 @@ LOGOS_TEST(a_refused_storage_start_reports_failed_with_the_reason) {
 
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
     fakeStorageNode = defaultNode;
 
     LogosMap state = impl.getStorageState();
@@ -862,8 +901,9 @@ LOGOS_TEST(a_refused_storage_start_reports_failed_with_the_reason) {
                     std::string("failed:the storage module refused the start command"));
 }
 
-// Switching to "http" lets go of the node; switching back starts it again.
-LOGOS_TEST(switching_to_http_and_back_stops_then_restarts_storage_use) {
+// Switching to "http" lets go of the node; switching back watches it again,
+// and leaves it off until something needs it.
+LOGOS_TEST(switching_to_http_and_back_lets_go_then_watches_storage_again) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     bool started = false;
@@ -873,6 +913,7 @@ LOGOS_TEST(switching_to_http_and_back_stops_then_restarts_storage_use) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
 
     impl.setDownloadSource("http");
     const std::string afterHttp = impl.getStorageState()["state"].get<std::string>();
@@ -886,8 +927,8 @@ LOGOS_TEST(switching_to_http_and_back_stops_then_restarts_storage_use) {
 
     LOGOS_ASSERT_EQ(afterHttp, std::string("off"));
     LOGOS_ASSERT_TRUE(rewatched);
-    LOGOS_ASSERT_TRUE(started);
-    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("running"));
+    LOGOS_ASSERT_FALSE(started);
+    LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("idle"));
 }
 
 // storage_module reloaded while the source is "http": a ready edge from a
@@ -921,10 +962,10 @@ LOGOS_TEST(stop_reports_storage_off) {
     LOGOS_ASSERT_EQ(impl.getStorageState()["state"].get<std::string>(), std::string("off"));
 }
 
-// storage_module's ready arrives twice for one load: the second start while
-// the first is under way is refused as "busy", and was reported as a failure,
+// storage_module's ready arrives twice for one load: a second start while the
+// first is under way is refused as "busy", and was reported as a failure,
 // which sent a "Both" user to GitHub and unloaded the node mid-start.
-LOGOS_TEST(a_second_ready_while_starting_starts_nothing_and_reports_no_failure) {
+LOGOS_TEST(a_ready_while_starting_starts_nothing_and_reports_no_failure) {
     logos_test::EventCapture events;
     auto t = LogosTestContext("package_downloader");
     const StorageNode defaultNode = fakeStorageNode;
@@ -940,6 +981,7 @@ LOGOS_TEST(a_second_ready_while_starting_starts_nothing_and_reports_no_failure) 
     impl.start();
 
     fireStorageReady();
+    downloadFromLogos();
     fireStorageReady();
     if (finishFirstStart) finishFirstStart(true);
     fireStorageStarted(R"({"success":true,"message":""})");
@@ -1020,6 +1062,7 @@ LOGOS_TEST(an_accepted_start_waits_for_storageStart) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
 
     const std::string beforeEvent = storageStateOf(impl);
     fireStorageStarted(R"({"success":true,"message":""})");
@@ -1037,6 +1080,7 @@ LOGOS_TEST(a_failed_storageStart_reports_its_message) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
 
     fireStorageStarted(R"({"success":false,"message":"port 8070 is in use"})");
     fakeStorageNode = defaultNode;
@@ -1046,9 +1090,8 @@ LOGOS_TEST(a_failed_storageStart_reports_its_message) {
     LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string("port 8070 is in use"));
 }
 
-// Stopped from the Storage app, say: downloads can no longer use it, and the
-// state said "running" for good before.
-LOGOS_TEST(a_node_stopped_after_running_reports_failed) {
+// Stopped from the Storage app, say: the next download starts it again.
+LOGOS_TEST(a_node_stopped_after_running_goes_idle) {
     auto t = LogosTestContext("package_downloader");
     bool started = false;
     const StorageNode defaultNode = fakeStorageNode;
@@ -1057,6 +1100,7 @@ LOGOS_TEST(a_node_stopped_after_running_reports_failed) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
     const std::string beforeStop = storageStateOf(impl);
 
     fireStorageStopped(R"({"success":true,"message":""})");
@@ -1064,8 +1108,8 @@ LOGOS_TEST(a_node_stopped_after_running_reports_failed) {
 
     LOGOS_ASSERT_EQ(beforeStop, std::string("running"));
     LogosMap state = impl.getStorageState();
-    LOGOS_ASSERT_EQ(state["state"].get<std::string>(), std::string("failed"));
-    LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string("the storage node stopped"));
+    LOGOS_ASSERT_EQ(state["state"].get<std::string>(), std::string("idle"));
+    LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string());
 }
 
 // Unloaded or crashed: storage_module leaves "ready".
@@ -1078,6 +1122,7 @@ LOGOS_TEST(storage_module_going_away_reports_failed) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
 
     fireStorageGone();
     fakeStorageNode = defaultNode;
@@ -1085,8 +1130,8 @@ LOGOS_TEST(storage_module_going_away_reports_failed) {
     LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("failed"));
 }
 
-// ...and coming back starts it again.
-LOGOS_TEST(storage_module_coming_back_runs_again) {
+// Nothing running to stop, but downloads cannot use storage until it is back.
+LOGOS_TEST(storage_module_going_away_while_idle_reports_failed) {
     auto t = LogosTestContext("package_downloader");
     bool started = false;
     const StorageNode defaultNode = fakeStorageNode;
@@ -1095,13 +1140,39 @@ LOGOS_TEST(storage_module_coming_back_runs_again) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+
+    fireStorageGone();
+    const bool usable = downloadFromLogos();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(usable);
+    LOGOS_ASSERT_FALSE(started);
+    LogosMap state = impl.getStorageState();
+    LOGOS_ASSERT_EQ(state["state"].get<std::string>(), std::string("failed"));
+    LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string("storage_module is not loaded"));
+}
+
+// ...and coming back leaves the node to the next download.
+LOGOS_TEST(storage_module_coming_back_waits_for_a_download) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    downloadFromLogos();
     fireStorageGone();
 
     started = false;
     fireStorageReady();
+    const bool startedByReady = started;
+    const bool usable = downloadFromLogos();
     fakeStorageNode = defaultNode;
 
-    LOGOS_ASSERT_TRUE(started);
+    LOGOS_ASSERT_FALSE(startedByReady);
+    LOGOS_ASSERT_TRUE(usable);
     LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
 }
 
@@ -1137,6 +1208,7 @@ LOGOS_TEST(asking_for_the_state_rechecks_a_start_that_never_reported) {
     makeContextReady(impl);
     impl.start();
     fireStorageReady();
+    downloadFromLogos();
     const std::string whileStarting = storageStateOf(impl);
 
     up = true;
@@ -1145,4 +1217,199 @@ LOGOS_TEST(asking_for_the_state_rechecks_a_start_that_never_reported) {
 
     LOGOS_ASSERT_EQ(whileStarting, std::string("starting"));
     LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+// ── The node starts for a download ───────────────────────────────────────
+
+LOGOS_TEST(a_logos_download_starts_the_node_and_uses_it) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const bool startedBeforeDownload = started;
+
+    const bool usable = downloadFromLogos();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(startedBeforeDownload);
+    LOGOS_ASSERT_TRUE(started);
+    LOGOS_ASSERT_TRUE(usable);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+LOGOS_TEST(an_https_url_starts_nothing) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    const std::shared_ptr<StorageFetcher> fetcher = fakeStorageFetcher.lock();
+    const bool handled = fetcher->canHandle("https://example.com/wallet_module.lgx");
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(handled);
+    LOGOS_ASSERT_FALSE(started);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("idle"));
+}
+
+// The lib asks about every url of a release, whatever the source.
+LOGOS_TEST(a_logos_url_under_http_starts_nothing) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    impl.setDownloadSource("http");
+
+    const bool usable = downloadFromLogos();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(usable);
+    LOGOS_ASSERT_FALSE(started);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("off"));
+}
+
+// A host without storage_module: every download would wait for nothing.
+LOGOS_TEST(a_download_before_storage_is_ready_neither_waits_nor_starts) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    fakeStorageStartTimeout = std::chrono::seconds(10);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+
+    const auto before = std::chrono::steady_clock::now();
+    const bool usable = downloadFromLogos();
+    const auto waited = std::chrono::steady_clock::now() - before;
+    fakeStorageNode = defaultNode;
+    fakeStorageStartTimeout = std::chrono::milliseconds(100);
+
+    LOGOS_ASSERT_FALSE(usable);
+    LOGOS_ASSERT_FALSE(started);
+    LOGOS_ASSERT_TRUE(waited < std::chrono::seconds(2));
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("waiting"));
+}
+
+// Accepted is not up: the download waits for storageStart.
+LOGOS_TEST(a_download_waits_for_storageStart) {
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = slowNode();
+    fakeStorageStartTimeout = std::chrono::seconds(10);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    std::thread storage([]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        fireStorageStarted(R"({"success":true,"message":""})");
+    });
+    const bool usable = downloadFromLogos();
+    storage.join();
+    fakeStorageNode = defaultNode;
+    fakeStorageStartTimeout = std::chrono::milliseconds(100);
+
+    LOGOS_ASSERT_TRUE(usable);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+// "any" then goes to HTTP; the start goes on for the next download.
+LOGOS_TEST(a_download_gives_up_on_a_node_that_does_not_start_in_time) {
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = slowNode();
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    const bool usable = downloadFromLogos();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(usable);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("starting"));
+}
+
+LOGOS_TEST(the_next_download_retries_a_failed_start) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    fakeStorageNode.start = [](std::function<void(bool)> done) { done(false); };
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    const bool firstUsable = downloadFromLogos();
+    const std::string afterFailure = storageStateOf(impl);
+    fakeStorageNode = fakeNode(started);
+    const bool secondUsable = downloadFromLogos();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_FALSE(firstUsable);
+    LOGOS_ASSERT_EQ(afterFailure, std::string("failed"));
+    LOGOS_ASSERT_TRUE(secondUsable);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+// Stopped from the Storage app: a download that needs it starts it again.
+LOGOS_TEST(a_download_starts_a_node_stopped_by_the_user_again) {
+    auto t = LogosTestContext("package_downloader");
+    bool started = false;
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = fakeNode(started);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    downloadFromLogos();
+    fireStorageStopped(R"({"success":true,"message":""})");
+    started = false;
+
+    const bool usable = downloadFromLogos();
+    fakeStorageNode = defaultNode;
+
+    LOGOS_ASSERT_TRUE(started);
+    LOGOS_ASSERT_TRUE(usable);
+    LOGOS_ASSERT_EQ(storageStateOf(impl), std::string("running"));
+}
+
+LOGOS_TEST(stop_ends_a_download_waiting_for_the_node) {
+    auto t = LogosTestContext("package_downloader");
+    const StorageNode defaultNode = fakeStorageNode;
+    fakeStorageNode = slowNode();
+    fakeStorageStartTimeout = std::chrono::seconds(10);
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    bool usable = true;
+    const auto before = std::chrono::steady_clock::now();
+    std::thread download([&usable]() { usable = downloadFromLogos(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    impl.stop();
+    download.join();
+    const auto waited = std::chrono::steady_clock::now() - before;
+    fakeStorageNode = defaultNode;
+    fakeStorageStartTimeout = std::chrono::milliseconds(100);
+
+    LOGOS_ASSERT_FALSE(usable);
+    LOGOS_ASSERT_TRUE(waited < std::chrono::seconds(5));
 }

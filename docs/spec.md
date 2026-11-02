@@ -204,7 +204,7 @@ failure). Read operations return lists or maps of domain data.
 
 | Operation | Result | Behavior |
 |-----------|--------|----------|
-| **Start** | `{success, error?}` | Load the repository configuration and start the storage node when the storage module is loaded. Idempotent. Every other operation is refused until a consumer starts the module. |
+| **Start** | `{success, error?}` | Load the repository configuration and watch the storage module. The storage node starts later, for the first download that needs it. Idempotent. Every other operation is refused until a consumer starts the module. |
 | **Stop** | `{success, error?}` | Cancel the downloads in flight and release the storage node, which keeps running for its other consumers. |
 | **Get state** | `"stopped"` or `"running"` | Whether the module has been started. |
 | **Add repository** | `{success, error?}` | Register a user repository by its `logos-repo.json` URL. On success, persist and emit *catalog-changed*. |
@@ -284,6 +284,11 @@ list repositories
 
 - **Nothing happens on load.** The module reads no configuration and starts no
   storage node until a consumer calls *start*.
+- **The storage node starts only for a download.** Neither *start* nor the
+  storage module becoming ready starts it. A download that picks a
+  `logos:<network>:<cid>` URL starts it and waits up to 90 seconds; under "any"
+  it then falls back to HTTPS. Previews (*resolve dependencies*) and catalog
+  reads never start it.
 - **The default repository is permanent.** It is always present and removal is
   refused; only its enabled state can change.
 - **The catalog is always the live union of enabled repositories.** Disabling a

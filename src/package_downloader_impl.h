@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
@@ -62,7 +63,8 @@ public:
 
     // The downloader's use of the storage node: { state, error }. state is
     // "off" (stopped, or the source is "http"), "waiting" (for storage_module
-    // to be ready), "starting", "running" or "failed" (error says why).
+    // to be ready), "idle" (not running: the first download from a logos: url
+    // starts it), "starting", "running" or "failed" (error says why).
     // storageStateChanged reports each change.
     LogosMap  getStorageState();
 
@@ -93,11 +95,11 @@ public:
 
     // Lifecycle. The module does nothing on load: a consumer calls start()
     // before its first call, and every other method answers "not started"
-    // until then. start() loads the repository config and, when
-    // storage_module is there, starts the storage node; it is idempotent.
-    // stop() cancels the downloads in flight and lets go of the storage node,
-    // without stopping it. getState() returns "stopped" or "running", and
-    // stateChanged reports each change.
+    // until then. start() loads the repository config and watches
+    // storage_module; it is idempotent. The storage node starts only when a
+    // download from a logos: url needs it. stop() cancels the downloads in
+    // flight and lets go of the storage node, without stopping it. getState()
+    // returns "stopped" or "running", and stateChanged reports each change.
     LogosMap  start();
     LogosMap  stop();
     std::string getState();
@@ -156,7 +158,10 @@ private:
     // share, so one still running after the destructor frees nothing under it.
     struct CallState;
 
-    void startStorage(const std::shared_ptr<Run>& run);
+    void launchStorage(const std::shared_ptr<Run>& run);
+    std::string awaitStorage(const std::weak_ptr<Run>& weakRun, std::chrono::milliseconds timeout);
+    void storageReady(const std::shared_ptr<Run>& run);
+    void storageGone(const std::shared_ptr<Run>& run);
     void watchStorage(const std::shared_ptr<Run>& run);
     void setStorageState(const std::string& state, const std::string& error);
     bool moveStorageState(std::initializer_list<const char*> from, const char* to, const std::string& error);

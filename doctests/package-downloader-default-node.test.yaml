@@ -1,19 +1,20 @@
-name: "The Package Downloader starts its Storage Node using default configuration."
+name: "The Package Downloader leaves its Storage Node off until a download needs it."
 output: package-downloader-default-node.md
 release: ""
 
 intro: |
   The package downloader needs a storage node running before it can serve a
-  `logos:<network>:<cid>` url, and it brings that node up itself when the storage module
-  is started. This tutorial proves it on the default configuration, kept off the
-  public network: the node gets no bootstrap nodes, and everything else, the data
-  directory included, comes from the defaults.
+  `logos:<network>:<cid>` url, and it brings that node up itself, for the first
+  download that needs it. Until then the node stays off: a daemon that never
+  downloads over Logos Storage writes nothing under `$HOME/.logos_storage`. This
+  tutorial proves it on the default configuration, kept off the public network.
+  The storage download tutorial shows a download starting the node.
 
-what_you_build: "A Logos daemon whose storage node was never started by hand."
+what_you_build: "A Logos daemon whose package downloader runs while its storage node stays off."
 
 what_you_learn:
-  - How starting the downloader starts the storage node
-  - Where the node configuration is read from, and how the defaults fill in the rest
+  - That starting the downloader does not start the storage node
+  - How the downloader reports a node that waits for a download
 prerequisites:
   - |
     **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
@@ -98,7 +99,7 @@ sections:
         run: 'HOME="$(pwd)/home" ./logosctl/bin/logosctl --config-dir ./session -D --detach'
         code_block: "HOME=$(pwd)/home logosctl --config-dir ./session -D --detach"
 
-  - title: "Starting the downloader starts the node"
+  - title: "Starting the downloader leaves the node off"
     step: true
     steps:
       - title: "The daemon starts the downloader"
@@ -119,64 +120,37 @@ sections:
         expect_contains:
           - '"success":true'
 
-      - title: "The node is running"
+      - title: "The node waits for a download"
         text: |
-          The downloader loads the configuration, initialises the node and
-          starts it.
+          The downloader sees the storage module become ready, finds its node
+          not running and leaves it so: `idle` means the first download from a
+          `logos:` url starts it.
         run: |
           set -eu
 
-          # The node takes a moment to start
+          # The downloader reports the node once the storage module is ready
           for _ in $(seq 30); do
-            running=$(./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning)
-            case "$running" in *'"result":true'*) break ;; esac
+            state=$(./logosctl/bin/logosctl --config-dir ./session call package_downloader getStorageState)
+            case "$state" in *'"idle"'*) break ;; esac
             sleep 1
           done
 
-          echo "$running"
-
-          # Not running: show what the node was doing instead
-          case "$running" in
-            *'"result":true'*) ;;
-            *) grep storage_module session/logs/daemon.log | tail -n 40; exit 1 ;;
-          esac
-        code_block: 'logosctl call storage_module isRunning'
-        expect_contains:
-          - '"result":true'
-
-      - title: "It runs on the default data directory"
-        text: |
-          The configuration sets no data directory, so `loadConfigOrDefault` fills in the
-          default one, under the shared storage home.
-        run: './logosctl/bin/logosctl --config-dir ./session call storage_module dataDir'
-        code_block: 'logosctl call storage_module dataDir'
-        expect_contains:
-          - ".logos_storage/data"
-
-      - title: "The repository exists on disk"
-        run: 'ls -d home/.logos_storage/data'
-        code_block: 'ls -d home/.logos_storage/data'
-        expect_contains:
-          - ".logos_storage/data"
-
-  - title: "The node outlives the downloader"
-    step: true
-    text: |
-      The node is shared, so nobody takes it down behind another consumer's
-      back. The downloader leaves without stopping anything, and the node stays
-      up for whoever else is using it.
-    steps:
-      - title: "Unload the downloader"
-        run: |
-          set -eu
-          ./logosctl/bin/logosctl --config-dir ./session module unload package_downloader
-          sleep 3
+          echo "$state"
           ./logosctl/bin/logosctl --config-dir ./session call storage_module isRunning
         code_block: |
-          logosctl module unload package_downloader
+          logosctl call package_downloader getStorageState
           logosctl call storage_module isRunning
         expect_contains:
-          - "true"
+          - '"state":"idle"'
+          - '"result":false'
+
+      - title: "Nothing was written to the storage home"
+        text: |
+          The node never started, so it created no data directory.
+        run: 'test ! -e home/.logos_storage/data && echo "no data directory"'
+        code_block: 'ls home/.logos_storage'
+        expect_contains:
+          - "no data directory"
 
   - title: "Shut down"
     step: true
@@ -185,12 +159,12 @@ sections:
         run: './logosctl/bin/logosctl --config-dir ./session stop'
         code_block: "logosctl stop"
 
-  - title: "Shut down while the node starts"
+  - title: "Shut down while the downloader starts"
     step: true
     text: |
-      Starting the downloader starts the node. Stopping the daemon right away,
-      while the node may still be starting, must still end cleanly: the daemon
-      exits, and nothing crashes.
+      Stopping the daemon right after it started the downloader, while the
+      downloader may still be watching for the storage module, must still end
+      cleanly: the daemon exits, and nothing crashes.
     steps:
       - title: "Start the daemon and the downloader, and stop at once"
         run: |
