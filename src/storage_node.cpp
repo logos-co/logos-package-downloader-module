@@ -98,3 +98,25 @@ std::string configNetwork(const std::string& config) {
         return std::string();
     }
 }
+
+std::string storageNetwork(bool storageReady, const std::function<StdLogosResult()>& loadConfig) {
+    if (!storageReady) {
+        return std::string();
+    }
+
+    // Read from the saved configuration in order to have the network
+    // information even if the node is stopped.
+    const StdLogosResult r = loadConfig();
+
+    if (!r.success) {
+        fprintf(stderr, "storageNetwork: cannot load the storage config: %s\n", r.error.c_str());
+        return std::string();
+    }
+
+    if (!r.value.is_string()) {
+        fprintf(stderr, "storageNetwork: the storage module did not return a configuration\n");
+        return std::string();
+    }
+
+    return configNetwork(r.value.get<std::string>());
+}

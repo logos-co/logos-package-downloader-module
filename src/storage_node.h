@@ -3,6 +3,8 @@
 #include <functional>
 #include <string>
 
+#include <logos_result.h>
+
 // Each call answers through its callback, once storage_module replies.
 struct StorageNode {
     std::function<void(std::function<void(bool running)>)> isRunning;
@@ -28,3 +30,8 @@ void startStorageNode(const StorageNode& node, std::function<void(const std::str
 // empty when the configuration is not a JSON object, or when `network` is not a string.
 // empty when the configuration sets `bootstrap-node` or `no-bootstrap-node`.
 std::string configNetwork(const std::string& config);
+
+// The storage network: empty while storage_module is not ready, otherwise
+// the configNetwork of the configuration `loadConfig` returns.
+// `loadConfig` is called only when storage_module is ready.
+std::string storageNetwork(bool storageReady, const std::function<StdLogosResult()>& loadConfig);

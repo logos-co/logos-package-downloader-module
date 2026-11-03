@@ -89,25 +89,9 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules,
 }
 
 std::string makeNetwork(LogosModules& modules) {
-    if (!modules.modules_state.is_ready("storage_module")) {
-        return std::string();
-    }
-
-    // Read from the saved configuration in order to have the network
-    // information even if the node is stopped.
-    const StdLogosResult r = modules.storage_module.loadConfigOrDefault();
-
-    if (!r.success) {
-        fprintf(stderr, "makeNetwork: cannot load the storage config: %s\n", r.error.c_str());
-        return std::string();
-    }
-
-    if (!r.value.is_string()) {
-        fprintf(stderr, "makeNetwork: the storage module did not return a configuration\n");
-        return std::string();
-    }
-
-    return configNetwork(r.value.get<std::string>());
+    return storageNetwork(modules.modules_state.is_ready("storage_module"), [&modules]() {
+        return modules.storage_module.loadConfigOrDefault();
+    });
 }
 
 // The factory is swapped for a mock in unit tests, which have no logos_sdk.h,

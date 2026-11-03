@@ -179,3 +179,40 @@ LOGOS_TEST(configNetwork_is_empty_for_a_configuration_that_does_not_parse) {
     LOGOS_ASSERT_EQ(configNetwork("[]"), std::string());
     LOGOS_ASSERT_EQ(configNetwork(R"({"network":42})"), std::string());
 }
+
+// The network is read from the saved configuration, even when the node is stopped.
+LOGOS_TEST(storageNetwork_reads_the_network_of_the_saved_configuration) {
+    const std::string network = storageNetwork(true, []() {
+        return StdLogosResult{true, R"({"network":"logos.dev"})", ""};
+    });
+
+    LOGOS_ASSERT_EQ(network, std::string("logos.dev"));
+}
+
+LOGOS_TEST(storageNetwork_does_not_load_the_configuration_before_storage_module_is_ready) {
+    bool loaded = false;
+
+    const std::string network = storageNetwork(false, [&loaded]() {
+        loaded = true;
+        return StdLogosResult{true, R"({"network":"logos.dev"})", ""};
+    });
+
+    LOGOS_ASSERT_EQ(network, std::string());
+    LOGOS_ASSERT_FALSE(loaded);
+}
+
+LOGOS_TEST(storageNetwork_is_empty_when_the_configuration_cannot_be_loaded) {
+    const std::string network = storageNetwork(true, []() {
+        return StdLogosResult{false, {}, "Invalid configuration: bad json"};
+    });
+
+    LOGOS_ASSERT_EQ(network, std::string());
+}
+
+LOGOS_TEST(storageNetwork_is_empty_when_the_configuration_is_not_a_string) {
+    const std::string network = storageNetwork(true, []() {
+        return StdLogosResult{true, nlohmann::json::object(), ""};
+    });
+
+    LOGOS_ASSERT_EQ(network, std::string());
+}
