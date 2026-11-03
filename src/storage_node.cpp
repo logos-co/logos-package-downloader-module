@@ -1,5 +1,7 @@
 #include "storage_node.h"
 
+#include <cstdio>
+#include <exception>
 #include <string>
 
 #include <logos_json.h>
@@ -79,6 +81,7 @@ std::string configNetwork(const std::string& config) {
         const LogosMap parsed = LogosMap::parse(config);
 
         if (!parsed.is_object()) {
+            fprintf(stderr, "configNetwork: the storage config is not a JSON object\n");
             return std::string();
         }
 
@@ -90,7 +93,8 @@ std::string configNetwork(const std::string& config) {
         }
 
         return parsed.value("network", std::string("logos.test"));
-    } catch (...) {
+    } catch (const std::exception& e) {
+        fprintf(stderr, "configNetwork: invalid storage config: %s\n", e.what());
         return std::string();
     }
 }
