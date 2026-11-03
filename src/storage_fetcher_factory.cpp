@@ -97,7 +97,13 @@ std::string makeNetwork(LogosModules& modules) {
     // information even if the node is stopped.
     const StdLogosResult r = modules.storage_module.loadConfigOrDefault();
 
-    if (!r.success || !r.value.is_string()) {
+    if (!r.success) {
+        fprintf(stderr, "makeNetwork: cannot load the storage config: %s\n", r.error.c_str());
+        return std::string();
+    }
+
+    if (!r.value.is_string()) {
+        fprintf(stderr, "makeNetwork: the storage module did not return a configuration\n");
         return std::string();
     }
 
