@@ -58,8 +58,8 @@ public:
     // Fails the downloads in flight with `reason`, and every later one.
     void cancelPendingDownloads(const std::string& reason = "the module is unloading");
 
-    // For a logos: url, starts the node first and waits for it (awaitNode):
-    // the network is known only once it runs.
+    // Accepts a logos: url on the storage network.
+    // If the network matches, it starts the node and waits for it (awaitNode).
     bool canHandle(const std::string& url) const override;
 
     std::string network() const override;

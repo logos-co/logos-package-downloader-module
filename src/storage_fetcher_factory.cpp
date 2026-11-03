@@ -93,13 +93,15 @@ std::string makeNetwork(LogosModules& modules) {
         return std::string();
     }
 
-    const StdLogosResult r = modules.storage_module.network();
+    // Read from the saved configuration in order to have the network
+    // information even if the node is stopped.
+    const StdLogosResult r = modules.storage_module.loadConfigOrDefault();
 
     if (!r.success || !r.value.is_string()) {
         return std::string();
     }
 
-    return r.value.get<std::string>();
+    return configNetwork(r.value.get<std::string>());
 }
 
 // The factory is swapped for a mock in unit tests, which have no logos_sdk.h,

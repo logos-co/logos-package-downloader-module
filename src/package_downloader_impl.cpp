@@ -572,6 +572,11 @@ void PackageDownloaderImpl::storageStarted(const std::shared_ptr<Run>& run,
         // From idle and failed too: another consumer may have brought it up.
         moveStorageState({kStorageStarting, kStorageWaiting, kStorageIdle, kStorageFailed},
                          kStorageRunning, "");
+
+        // Trigger `catalogChanged` in case the network has changed.
+        if (!call.unloading()) {
+            catalogChanged();
+        }
     } else {
         moveStorageState({kStorageStarting}, kStorageFailed,
                          message.empty() ? std::string("the storage node did not start") : message);

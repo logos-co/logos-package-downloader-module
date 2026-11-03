@@ -156,3 +156,17 @@ LOGOS_TEST(start_stops_between_calls_when_the_module_unloads) {
     LOGOS_ASSERT_TRUE(fake.initCalled);
     LOGOS_ASSERT_FALSE(fake.startCalled);
 }
+
+LOGOS_TEST(configNetwork_reads_the_network_of_the_configuration) {
+    LOGOS_ASSERT_EQ(configNetwork(R"({"network":"logos.dev"})"), std::string("logos.dev"));
+}
+
+LOGOS_TEST(configNetwork_defaults_to_logos_test) {
+    LOGOS_ASSERT_EQ(configNetwork(R"({"data-dir":"/tmp/storage"})"), std::string("logos.test"));
+}
+
+LOGOS_TEST(configNetwork_is_empty_for_a_configuration_that_does_not_parse) {
+    LOGOS_ASSERT_EQ(configNetwork("not json"), std::string());
+    LOGOS_ASSERT_EQ(configNetwork("[]"), std::string());
+    LOGOS_ASSERT_EQ(configNetwork(R"({"network":42})"), std::string());
+}

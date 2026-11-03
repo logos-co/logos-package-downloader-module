@@ -114,7 +114,10 @@ public:
     // setRepositoryEnabled, and setDownloadSource when the source changes.
     // It also fires when the catalog the lib serves moved under a call: a
     // refreshCatalog() that fetched something different, or any call that
-    // read an index whose earlier fetch failed. Subscribers re-fetch via
+    // read an index whose earlier fetch failed. It also fires on each
+    // successful storageStart, to detect a network change by another module.
+    // getCatalog()'s usableSources follow the network of the saved storage
+    // config. Subscribers re-fetch via
     // listRepositories() / getCatalog(); everyone then holds the same copy.
     //
     // downloadProgress fires per package while its bytes are on the wire, in

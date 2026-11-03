@@ -660,6 +660,38 @@ LOGOS_TEST(canHandle_refuses_a_url_of_another_network) {
     LOGOS_ASSERT_FALSE(fetcher.canHandle("logos:logos.dev:cid-1"));
 }
 
+LOGOS_TEST(canHandle_starts_no_node_for_a_url_of_another_network) {
+    Manifest manifest;
+    int nodeStarts = 0;
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout,
+                           [&nodeStarts](std::chrono::milliseconds) {
+                               ++nodeStarts;
+                               return std::string();
+                           });
+
+    const bool handled = fetcher.canHandle("logos:logos.dev:cid-1");
+
+    LOGOS_ASSERT_FALSE(handled);
+    LOGOS_ASSERT_EQ(nodeStarts, 0);
+}
+
+LOGOS_TEST(canHandle_starts_the_node_for_a_url_of_the_storage_network) {
+    Manifest manifest;
+    int nodeStarts = 0;
+    StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout,
+                           [&nodeStarts](std::chrono::milliseconds) {
+                               ++nodeStarts;
+                               return std::string();
+                           });
+
+    const bool handled = fetcher.canHandle("logos:logos.test:cid-1");
+
+    LOGOS_ASSERT_TRUE(handled);
+    LOGOS_ASSERT_EQ(nodeStarts, 1);
+}
+
 LOGOS_TEST(canHandle_refuses_a_url_when_the_network_is_unknown) {
     Manifest manifest;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,

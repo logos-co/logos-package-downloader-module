@@ -1112,6 +1112,47 @@ LOGOS_TEST(a_node_stopped_after_running_goes_idle) {
     LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string());
 }
 
+// A start follows each init. The init may have saved a new network.
+LOGOS_TEST(a_storage_node_start_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    fireStorageStarted(R"({"success":true,"message":""})");
+
+    LOGOS_ASSERT_TRUE(events.has("catalogChanged"));
+}
+
+LOGOS_TEST(a_failed_storage_node_start_emits_no_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    fireStorageStarted(R"({"success":false,"message":"port 8070 is in use"})");
+
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
+// A stop does not change the saved network.
+LOGOS_TEST(a_storage_node_stop_emits_no_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+
+    fireStorageStopped(R"({"success":true,"message":""})");
+
+    LOGOS_ASSERT_FALSE(events.has("catalogChanged"));
+}
+
 // Unloaded or crashed: storage_module leaves "ready".
 LOGOS_TEST(storage_module_going_away_reports_failed) {
     auto t = LogosTestContext("package_downloader");

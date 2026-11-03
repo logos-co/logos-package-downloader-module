@@ -22,3 +22,8 @@ struct StorageNode {
 // Bring the node up: load the configuration, init and start. `done` gets
 // an empty string on success, the reason otherwise.
 void startStorageNode(const StorageNode& node, std::function<void(const std::string& error)> done);
+
+// The `network` of a storage configuration.
+// `logos.test` when `network` is missing: the storage node's default.
+// empty when the configuration is not a JSON object, or when `network` is not a string.
+std::string configNetwork(const std::string& config);

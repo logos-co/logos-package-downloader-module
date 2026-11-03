@@ -288,9 +288,17 @@ list repositories
 - **The storage node starts for a download, or when a consumer asks.** Neither
   *start* nor the storage module becoming ready starts it, unless *start
   storage* asked for it. A download that picks a
-  `logos:<network>:<cid>` URL starts it and waits up to 90 seconds; under "any"
+  `logos:<network>:<cid>` URL on the storage network starts it and waits up
+  to 90 seconds; under "any"
   it then falls back to HTTPS. Previews (*resolve dependencies*) and catalog
   reads never start it.
+- **The storage network is loaded from the storage configuration.** It is
+  `logos.test` by default. It is known even when the node is stopped.
+- **Logos Storage serves only the storage network.** A version is usable over
+  Logos Storage only when it has a `logos:<network>:<cid>` URL on the storage
+  network.
+- **A storage node start notifies.** Each successful start of the storage node
+  emits catalog-changed, to detect a network change by another module.
 - **The default repository is permanent.** It is always present and removal is
   refused; only its enabled state can change.
 - **The catalog is always the live union of enabled repositories.** Disabling a

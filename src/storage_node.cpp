@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <logos_json.h>
+
 namespace {
 
 // Reports the stop through `done` when the caller is unloading.
@@ -70,4 +72,18 @@ void startStorageNode(const StorageNode& node, std::function<void(const std::str
             });
         });
     });
+}
+
+std::string configNetwork(const std::string& config) {
+    try {
+        const LogosMap parsed = LogosMap::parse(config);
+
+        if (!parsed.is_object()) {
+            return std::string();
+        }
+
+        return parsed.value("network", std::string("logos.test"));
+    } catch (...) {
+        return std::string();
+    }
 }
