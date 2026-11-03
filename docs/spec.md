@@ -299,6 +299,8 @@ list repositories
   network.
 - **A storage node start notifies.** Each successful start of the storage node
   emits catalog-changed, to detect a network change by another module.
+- **The storage module coming and going notifies.** The storage module
+  becoming ready, or going away, emits catalog-changed.
 - **The default repository is permanent.** It is always present and removal is
   refused; only its enabled state can change.
 - **The catalog is always the live union of enabled repositories.** Disabling a

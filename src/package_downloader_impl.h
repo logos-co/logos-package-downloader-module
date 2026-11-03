@@ -116,7 +116,8 @@ public:
     // refreshCatalog() that fetched something different, or any call that
     // read an index whose earlier fetch failed. It also fires on each
     // successful storageStart, to detect a network change by another module.
-    // getCatalog()'s usableSources follow the network of the saved storage
+    // It also fires when storage_module becomes ready or goes away: the
+    // network appears or disappears. getCatalog()'s usableSources follow the network of the saved storage
     // config. Subscribers re-fetch via
     // listRepositories() / getCatalog(); everyone then holds the same copy.
     //
