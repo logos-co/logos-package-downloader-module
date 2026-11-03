@@ -26,4 +26,5 @@ void startStorageNode(const StorageNode& node, std::function<void(const std::str
 // The `network` of a storage configuration.
 // `logos.test` when `network` is missing: the storage node's default.
 // empty when the configuration is not a JSON object, or when `network` is not a string.
+// empty when the configuration sets `bootstrap-node` or `no-bootstrap-node`.
 std::string configNetwork(const std::string& config);
