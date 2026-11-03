@@ -165,13 +165,9 @@ LOGOS_TEST(configNetwork_defaults_to_logos_test) {
     LOGOS_ASSERT_EQ(configNetwork(R"({"data-dir":"/tmp/storage"})"), std::string("logos.test"));
 }
 
-LOGOS_TEST(configNetwork_is_empty_with_its_own_bootstrap_nodes) {
-    LOGOS_ASSERT_EQ(configNetwork(R"({"network":"logos.test","bootstrap-node":["spr:abc"]})"), std::string());
-    LOGOS_ASSERT_EQ(configNetwork(R"({"no-bootstrap-node":true})"), std::string());
-}
-
-LOGOS_TEST(configNetwork_reads_the_network_with_an_empty_bootstrap_list) {
-    LOGOS_ASSERT_EQ(configNetwork(R"({"network":"logos.dev","bootstrap-node":[]})"), std::string("logos.dev"));
+// A local network with its own bootstrap node still has a name.
+LOGOS_TEST(configNetwork_reads_the_network_with_its_own_bootstrap_nodes) {
+    LOGOS_ASSERT_EQ(configNetwork(R"({"network":"logos.dev","bootstrap-node":["spr:abc"]})"), std::string("logos.dev"));
 }
 
 LOGOS_TEST(configNetwork_is_empty_for_a_configuration_that_does_not_parse) {

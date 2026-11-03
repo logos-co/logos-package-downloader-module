@@ -293,8 +293,7 @@ list repositories
   it then falls back to HTTPS. Previews (*resolve dependencies*) and catalog
   reads never start it.
 - **The storage network is loaded from the storage configuration.** It is
-  `logos.test` by default. It is known even when the node is stopped. A
-  configuration with its own bootstrap nodes has no storage network.
+  `logos.test` by default. It is known even when the node is stopped.
 - **Logos Storage serves only the storage network.** A version is usable over
   Logos Storage only when it has a `logos:<network>:<cid>` URL on the storage
   network.

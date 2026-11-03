@@ -85,13 +85,6 @@ std::string configNetwork(const std::string& config) {
             return std::string();
         }
 
-        // The node's own bootstrap nodes replace `network`: the node is not on
-        // a known network.
-        if (parsed.value("no-bootstrap-node", false)
-            || (parsed.contains("bootstrap-node") && !parsed["bootstrap-node"].empty())) {
-            return std::string();
-        }
-
         return parsed.value("network", std::string("logos.test"));
     } catch (const std::exception& e) {
         fprintf(stderr, "configNetwork: invalid storage config: %s\n", e.what());
