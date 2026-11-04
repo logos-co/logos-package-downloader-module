@@ -183,6 +183,16 @@ bool StorageFetcher::canHandle(const std::string& url) const {
         return false;
     }
 
+    // Check the network before starting the node.
+    const std::string network = m_network();
+    const bool handled = !network.empty() && url.rfind("logos:" + network + ":", 0) == 0;
+
+    if (!handled) {
+        fprintf(stderr, "StorageFetcher: skipping %s: the storage network is '%s'\n",
+                url.c_str(), network.empty() ? "<unknown>" : network.c_str());
+        return false;
+    }
+
     // The node starts on the first download that needs it.
     if (m_awaitNode) {
         if (const std::string error = m_awaitNode(m_startTimeout); !error.empty()) {
@@ -191,16 +201,11 @@ bool StorageFetcher::canHandle(const std::string& url) const {
         }
     }
 
-    const std::string network = m_network();
-    const bool handled = !network.empty() && url.rfind("logos:" + network + ":", 0) == 0;
+    return true;
+}
 
-    // Otherwise the lib skips Logos Storage without a trace.
-    if (!handled) {
-        fprintf(stderr, "StorageFetcher: skipping %s: the storage node is on network '%s'\n",
-                url.c_str(), network.empty() ? "<unknown>" : network.c_str());
-    }
-
-    return handled;
+std::string StorageFetcher::network() const {
+    return m_network();
 }
 
 lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::string& path) {

@@ -1112,6 +1112,78 @@ LOGOS_TEST(a_node_stopped_after_running_goes_idle) {
     LOGOS_ASSERT_EQ(state["error"].get<std::string>(), std::string());
 }
 
+// The network is read from the storage config once storage_module is ready.
+LOGOS_TEST(storage_module_ready_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+
+    fireStorageReady();
+
+    LOGOS_ASSERT_EQ(events.all("catalogChanged").size(), static_cast<size_t>(1));
+}
+
+// Without storage_module there is no network.
+LOGOS_TEST(storage_module_going_away_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const size_t beforeGone = events.all("catalogChanged").size();
+
+    fireStorageGone();
+
+    LOGOS_ASSERT_EQ(events.all("catalogChanged").size(), beforeGone + 1);
+}
+
+// A start follows each init. The init may have saved a new network.
+LOGOS_TEST(a_storage_node_start_emits_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const size_t beforeStart = events.all("catalogChanged").size();
+
+    fireStorageStarted(R"({"success":true,"message":""})");
+
+    LOGOS_ASSERT_EQ(events.all("catalogChanged").size(), beforeStart + 1);
+}
+
+LOGOS_TEST(a_failed_storage_node_start_emits_no_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const size_t beforeStart = events.all("catalogChanged").size();
+
+    fireStorageStarted(R"({"success":false,"message":"port 8070 is in use"})");
+
+    LOGOS_ASSERT_EQ(events.all("catalogChanged").size(), beforeStart);
+}
+
+// A stop does not change the saved network.
+LOGOS_TEST(a_storage_node_stop_emits_no_catalogChanged) {
+    logos_test::EventCapture events;
+    auto t = LogosTestContext("package_downloader");
+    PackageDownloaderImpl impl;
+    makeContextReady(impl);
+    impl.start();
+    fireStorageReady();
+    const size_t beforeStop = events.all("catalogChanged").size();
+
+    fireStorageStopped(R"({"success":true,"message":""})");
+
+    LOGOS_ASSERT_EQ(events.all("catalogChanged").size(), beforeStop);
+}
+
 // Unloaded or crashed: storage_module leaves "ready".
 LOGOS_TEST(storage_module_going_away_reports_failed) {
     auto t = LogosTestContext("package_downloader");

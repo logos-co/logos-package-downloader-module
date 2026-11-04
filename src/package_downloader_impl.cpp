@@ -572,6 +572,11 @@ void PackageDownloaderImpl::storageStarted(const std::shared_ptr<Run>& run,
         // From idle and failed too: another consumer may have brought it up.
         moveStorageState({kStorageStarting, kStorageWaiting, kStorageIdle, kStorageFailed},
                          kStorageRunning, "");
+
+        // Trigger `catalogChanged` in case the network has changed.
+        if (!call.unloading()) {
+            catalogChanged();
+        }
     } else {
         moveStorageState({kStorageStarting}, kStorageFailed,
                          message.empty() ? std::string("the storage node did not start") : message);
@@ -606,6 +611,11 @@ void PackageDownloaderImpl::storageGone(const std::shared_ptr<Run>& run) {
         m_calls->storageModuleReady = false;
     }
 
+    // Trigger `catalogChanged`: without storage_module there is no network.
+    if (!call.unloading()) {
+        catalogChanged();
+    }
+
     if (!moveStorageState({kStorageRunning, kStorageStarting}, kStorageFailed,
                           "the storage node stopped")) {
         moveStorageState({kStorageIdle}, kStorageFailed, "storage_module is not loaded");
@@ -632,6 +642,11 @@ void PackageDownloaderImpl::storageReady(const std::shared_ptr<Run>& run) {
         std::lock_guard<std::mutex> lock(m_calls->mutex);
         m_calls->storageModuleReady = true;
         wanted = m_calls->storageWanted;
+    }
+
+    // Trigger `catalogChanged`: the network is now read from the storage config.
+    if (!call->unloading()) {
+        catalogChanged();
     }
 
     // Again on each ready: a storage_module that restarted gets its node back.

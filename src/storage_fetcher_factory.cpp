@@ -89,17 +89,9 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules,
 }
 
 std::string makeNetwork(LogosModules& modules) {
-    if (!modules.modules_state.is_ready("storage_module")) {
-        return std::string();
-    }
-
-    const StdLogosResult r = modules.storage_module.network();
-
-    if (!r.success || !r.value.is_string()) {
-        return std::string();
-    }
-
-    return r.value.get<std::string>();
+    return storageNetwork(modules.modules_state.is_ready("storage_module"), [&modules]() {
+        return modules.storage_module.loadConfigOrDefault();
+    });
 }
 
 // The factory is swapped for a mock in unit tests, which have no logos_sdk.h,
