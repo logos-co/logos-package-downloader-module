@@ -1164,3 +1164,91 @@ LOGOS_TEST(cancelPendingDownloads_fails_a_resolve_in_progress) {
     LOGOS_ASSERT_FALSE(manifestFetched);
     LOGOS_ASSERT_FALSE(downloaded);
 }
+
+LOGOS_TEST(getToFile_can_retry_a_name_key_after_the_resolve_command_fails) {
+    bool downloaded = false;
+    bool manifestFetched = false;
+    int resolves = 0;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string&) {
+            ++resolves;
+            return std::string("node not started");
+        };
+
+    NameResolver resolver;
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, nameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult first = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+    lgpd::FetchResult second = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_FALSE(first.ok);
+    LOGOS_ASSERT_TRUE(first.error.find("name-1") != std::string::npos);
+    LOGOS_ASSERT_TRUE(first.error.find("node not started") != std::string::npos);
+    // The failed command leaves no resolve in progress.
+    LOGOS_ASSERT_TRUE(second.error.find("already in progress") == std::string::npos);
+    LOGOS_ASSERT_EQ(resolves, 2);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(getToFile_ignores_the_resolve_of_another_name_key) {
+    bool downloaded = false;
+    bool manifestFetched = false;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    NameResolver resolver;
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string&) {
+            resolver.fire(buildResolvePayload("other-key", "cid-9"));
+            return std::string();
+        };
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, nameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_FALSE(r.ok);
+    LOGOS_ASSERT_TRUE(r.error.find("no peer replied for name-1") != std::string::npos);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
+}

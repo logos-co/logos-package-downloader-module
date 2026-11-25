@@ -503,6 +503,8 @@ void StorageFetcher::onNameResolveDone(const std::string& payload) {
         const LogosMap event = LogosMap::parse(payload);
 
         if (!event.is_object()) {
+            fprintf(stderr, "StorageFetcher: dropping a name resolve event that is not an object: %s\n",
+                    payload.c_str());
             return;
         }
 
@@ -521,11 +523,19 @@ void StorageFetcher::onNameResolveDone(const std::string& payload) {
                 resolved.result = {true, {}};
             }
         }
+    } catch (const std::exception& e) {
+        fprintf(stderr, "StorageFetcher: dropping a name resolve event that cannot be read (%s): %s\n",
+                e.what(), payload.c_str());
+        return;
     } catch (...) {
+        fprintf(stderr, "StorageFetcher: dropping a name resolve event that cannot be read: %s\n",
+                payload.c_str());
         return;
     }
 
     if (nameKey.empty()) {
+        fprintf(stderr, "StorageFetcher: dropping a name resolve event without a nameKey: %s\n",
+                payload.c_str());
         return;
     }
 
