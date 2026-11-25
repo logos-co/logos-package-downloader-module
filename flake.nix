@@ -6,7 +6,7 @@
     # Cut the builder -> standalone-app -> liblogos -> ... -> builder lock cycle.
     # Safe for a core module: mkLogosModule never forces standalone-app.
     logos-module-builder.inputs.logos-standalone-app.follows = "";
-    logos-package-downloader.url = "github:logos-co/logos-package-downloader";
+    logos-package-downloader.url = "github:logos-co/logos-package-downloader/feat/index-urls";
     storage_module.url = "github:logos-co/logos-storage-module/feat/naming-service";
     # Consumed for their LIDL contracts only: without these, each brings its
     # own builder subtree into the lock.
