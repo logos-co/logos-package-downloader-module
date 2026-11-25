@@ -148,7 +148,10 @@ lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
 }
 
 lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) {
-    const fs::path tmp = fs::temp_directory_path() / ("lgpd-storage-" + cid);
+    // cid is a url logos:<network>:<CID>: a ':' is not valid in a Windows file name.
+    // https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+    const std::string fileCid = cid.substr(cid.rfind(':') + 1);
+    const fs::path tmp = fs::temp_directory_path() / ("lgpd-storage-" + fileCid);
     const lgpd::FetchResult fetched = getToFile(cid, tmp.string());
 
     std::error_code ec;
