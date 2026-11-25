@@ -4,6 +4,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -730,6 +732,43 @@ LOGOS_TEST(getToFile_downloads_the_cid_of_a_logos_url) {
 
     LOGOS_ASSERT_TRUE(r.ok);
     LOGOS_ASSERT_EQ(downloadedCid, std::string("cid-1"));
+}
+
+// A ':' is not valid in a Windows file name.
+LOGOS_TEST(get_downloads_a_logos_url_to_a_path_without_a_colon) {
+    std::function<void(const std::string&)> fireDone;
+    std::string downloadedPath;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string& cid, const std::string& path) {
+            downloadedPath = path;
+            std::ofstream(path, std::ios::binary) << "index content";
+
+            const bool success = true;
+            fireDone(buildPayload(cid, success));
+
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [&](std::function<void(const std::string&)> callback) {
+            fireDone = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+
+    Manifest manifest;
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    std::string out;
+    lgpd::FetchResult r = fetcher.get("logos:logos.test:cid-1", out);
+
+    LOGOS_ASSERT_TRUE(r.ok);
+    LOGOS_ASSERT_EQ(out, std::string("index content"));
+
+    const std::string fileName = std::filesystem::path(downloadedPath).filename().string();
+    LOGOS_ASSERT_EQ(fileName, std::string("lgpd-storage-cid-1"));
 }
 
 // A host without storage_module keeps no pending subscription: the impl
