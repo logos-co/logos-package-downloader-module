@@ -1491,18 +1491,15 @@
         "nixpkgs-windows": "nixpkgs-windows_22"
       },
       "locked": {
-        "lastModified": 1791033757,
-        "narHash": "sha256-Vj89qnnSFvPaROHJ44VBSg9vF+amjPfaNLg82yuisMw=",
-        "ref": "refs/tags/v0.5.3",
-        "rev": "56854f4ebce0cfe68e3557d1be21b758ac62ae0c",
-        "revCount": 996,
-        "submodules": true,
+        "lastModified": 1795544968,
+        "narHash": "sha256-qiidKRqk5V0K7ozFwe1j0xVLXPsDDJbwH89EaYH1wcM=",
+        "ref": "feat/naming-service",
+        "rev": "73e8c724302936d227ad3770e36d7a3d56ad38f4",
+        "revCount": 1104,
         "type": "git",
         "url": "https://github.com/logos-storage/logos-storage-nim"
       },
       "original": {
-        "ref": "refs/tags/v0.5.3",
-        "submodules": true,
         "type": "git",
         "url": "https://github.com/logos-storage/logos-storage-nim"
       }
@@ -2738,16 +2735,16 @@
         "logos-storage": "logos-storage"
       },
       "locked": {
-        "lastModified": 1791039176,
-        "narHash": "sha256-NSJrn8aR9fYKcNJjujXhIPTQNkJx+K4QGfZOfIH8qNs=",
+        "lastModified": 1795577026,
+        "narHash": "sha256-+eMmmXUo8ae0H/KMcu66Bg5r/f8CLGyKSHGfei6zmO0=",
         "owner": "logos-co",
         "repo": "logos-storage-module",
-        "rev": "7548f41ae189917d58c37f0fb6d3a2700b99f59b",
+        "rev": "13d305d6d647034947a08917f8909ca8933d7639",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
-        "ref": "v3.0.2",
+        "ref": "feat/naming-service",
         "repo": "logos-storage-module",
         "type": "github"
       }
