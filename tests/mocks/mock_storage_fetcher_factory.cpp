@@ -38,8 +38,9 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules&,
 
     auto fetcher = std::make_shared<StorageFetcher>(
         nullptr, subscribe, subscribe, nullptr, nullptr, subscribe,
+        nullptr, nullptr, [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); },
         []() { return false; }, []() { return fakeStorageNetwork; },
-        std::chrono::seconds(60), std::chrono::seconds(60),
+        std::chrono::seconds(60), std::chrono::seconds(60), std::chrono::seconds(60),
         std::move(awaitNode), fakeStorageStartTimeout);
 
     fakeStorageFetcher = fetcher;

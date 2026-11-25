@@ -49,6 +49,47 @@ const StorageFetcher::DownloadCancel unusedCancel =
         return std::string();
     };
 
+// Every key is a dataset CID.
+const StorageFetcher::IsNameKey unusedIsNameKey =
+    [](const std::string&, bool& nameKey) {
+        nameKey = false;
+        return std::string();
+    };
+
+const StorageFetcher::NameResolve unusedNameResolve =
+    [](const std::string&) {
+        return std::string();
+    };
+
+const StorageFetcher::OnStorageNameResolveDone unusedNameResolveDone =
+    [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+// name-1 is a name key, any other key a dataset CID.
+const StorageFetcher::IsNameKey isNameKey =
+    [](const std::string& key, bool& nameKey) {
+        nameKey = key == "name-1";
+        return std::string();
+    };
+
+std::string buildResolvePayload(const std::string& nameKey, const std::string& cid) {
+    return LogosMap{{"success", true}, {"nameKey", nameKey}, {"cid", cid}}.dump();
+}
+
+std::string buildResolveErrorPayload(const std::string& nameKey, const std::string& error) {
+    return LogosMap{{"success", false}, {"nameKey", nameKey}, {"error", error}}.dump();
+}
+
+struct NameResolver {
+    std::function<void(const std::string&)> fire;
+
+    StorageFetcher::OnStorageNameResolveDone subscribe() {
+        return [this](std::function<void(const std::string&)> callback) {
+            fire = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+    }
+};
+
 struct Manifest {
     std::function<void(const std::string&)> fire;
 
@@ -104,7 +145,9 @@ lgpd::FetchResult downloadWithSteadyProgress(const lgpd::ProgressFn& onProgress)
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, onStorageDownloadProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, stallTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, stallTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx", onProgress);
@@ -144,7 +187,9 @@ LOGOS_TEST(getToFile_succeeds) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -175,7 +220,9 @@ LOGOS_TEST(getToFile_returns_the_error_from_the_download_event) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -192,7 +239,9 @@ LOGOS_TEST(getToFile_returns_the_error_when_the_downloadToUrl_returns_an_error) 
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -217,7 +266,9 @@ LOGOS_TEST(getToFile_downloads_nothing_when_the_subscription_failed) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -252,7 +303,9 @@ LOGOS_TEST(getToFile_refuses_a_cid_already_in_progress) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
     fetcherPtr = &fetcher;
 
@@ -271,7 +324,9 @@ LOGOS_TEST(getToFile_times_out_when_no_event_arrives) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -296,7 +351,9 @@ LOGOS_TEST(getToFile_is_cancelled_on_timeout) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, downloadCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -315,7 +372,9 @@ LOGOS_TEST(cancelPendingDownloads_fails_a_download_in_progress) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
     fetcherPtr = &fetcher;
 
@@ -337,7 +396,9 @@ LOGOS_TEST(cancelPendingDownloads_fails_a_manifest_in_progress) {
         };
 
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           downloadManifest, onManifestDone, nodeRunning, network, shortTimeout, shortTimeout);
+                           downloadManifest, onManifestDone,
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
     fetcherPtr = &fetcher;
 
@@ -357,7 +418,9 @@ LOGOS_TEST(getToFile_downloads_nothing_after_cancelPendingDownloads) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     fetcher.cancelPendingDownloads();
@@ -370,7 +433,9 @@ LOGOS_TEST(getToFile_downloads_nothing_after_cancelPendingDownloads) {
 LOGOS_TEST(cancelPendingDownloads_reports_its_reason) {
     Manifest manifest;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     fetcher.cancelPendingDownloads("the downloader was stopped");
@@ -388,11 +453,12 @@ LOGOS_TEST(destroying_the_fetcher_cancels_its_subscriptions) {
 
     {
         StorageFetcher fetcher(nullptr, subscribe, subscribe, unusedCancel,
-                               nullptr, subscribe, nodeRunning, network, shortTimeout, shortTimeout);
+                               nullptr, subscribe, unusedIsNameKey, unusedNameResolve, subscribe,
+                               nodeRunning, network, shortTimeout, shortTimeout);
         fetcher.subscribe();
     }
 
-    LOGOS_ASSERT_EQ(cancelled, 3);
+    LOGOS_ASSERT_EQ(cancelled, 4);
 }
 
 LOGOS_TEST(getToFile_can_retry_a_cid_after_a_timeout) {
@@ -406,7 +472,9 @@ LOGOS_TEST(getToFile_can_retry_a_cid_after_a_timeout) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -431,7 +499,9 @@ LOGOS_TEST(getToFile_times_out_when_the_manifest_never_arrives) {
         [](const std::string&) { return std::string(); };
 
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           downloadManifest, onManifestDone, nodeRunning, network, shortTimeout, shortTimeout);
+                           downloadManifest, onManifestDone,
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -481,7 +551,9 @@ LOGOS_TEST(getToFile_accumulates_the_progress_data_size) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, onStorageDownloadProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     std::vector<std::pair<std::uint64_t, std::uint64_t>> samples;
@@ -527,7 +599,9 @@ LOGOS_TEST(getToFile_ignores_the_progress_of_another_session) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, onStorageDownloadProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     bool reported = false;
@@ -575,7 +649,9 @@ LOGOS_TEST(getToFile_fetches_the_manifest_before_the_download) {
         };
 
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           downloadManifest, onManifestDone, nodeRunning, network, shortTimeout, shortTimeout);
+                           downloadManifest, onManifestDone,
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -612,7 +688,9 @@ LOGOS_TEST(getToFile_does_not_download_when_the_manifest_fails) {
         };
 
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           downloadManifest, onManifestDone, nodeRunning, network, shortTimeout, shortTimeout);
+                           downloadManifest, onManifestDone,
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
@@ -634,6 +712,7 @@ LOGOS_TEST(getToFile_fails_when_the_node_is_not_running) {
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
                            manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
                            []() { return false; }, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
@@ -647,7 +726,9 @@ LOGOS_TEST(getToFile_fails_when_the_node_is_not_running) {
 LOGOS_TEST(canHandle_accepts_a_url_of_the_node_network) {
     Manifest manifest;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
 
     LOGOS_ASSERT_TRUE(fetcher.canHandle("logos:logos.test:cid-1"));
 }
@@ -655,7 +736,9 @@ LOGOS_TEST(canHandle_accepts_a_url_of_the_node_network) {
 LOGOS_TEST(canHandle_refuses_a_url_of_another_network) {
     Manifest manifest;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
 
     LOGOS_ASSERT_FALSE(fetcher.canHandle("logos:logos.dev:cid-1"));
 }
@@ -664,7 +747,9 @@ LOGOS_TEST(canHandle_starts_no_node_for_a_url_of_another_network) {
     Manifest manifest;
     int nodeStarts = 0;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout,
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout,
                            [&nodeStarts](std::chrono::milliseconds) {
                                ++nodeStarts;
                                return std::string();
@@ -680,7 +765,9 @@ LOGOS_TEST(canHandle_starts_the_node_for_a_url_of_the_storage_network) {
     Manifest manifest;
     int nodeStarts = 0;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout,
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout,
                            [&nodeStarts](std::chrono::milliseconds) {
                                ++nodeStarts;
                                return std::string();
@@ -695,7 +782,8 @@ LOGOS_TEST(canHandle_starts_the_node_for_a_url_of_the_storage_network) {
 LOGOS_TEST(canHandle_refuses_a_url_when_the_network_is_unknown) {
     Manifest manifest;
     StorageFetcher fetcher(nullptr, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning,
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone, nodeRunning,
                            []() { return std::string(); }, shortTimeout, shortTimeout);
 
     LOGOS_ASSERT_FALSE(fetcher.canHandle("logos::cid-1"));
@@ -723,7 +811,9 @@ LOGOS_TEST(getToFile_downloads_the_cid_of_a_logos_url) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
     fetcher.subscribe();
 
     lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:cid-1", "/tmp/wallet.lgx");
@@ -745,7 +835,9 @@ LOGOS_TEST(getToFile_downloads_nothing_before_subscribe) {
 
     Manifest manifest;
     StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
-                           manifest.fetch(), manifest.subscribe(), nodeRunning, network, shortTimeout, shortTimeout);
+                           manifest.fetch(), manifest.subscribe(),
+                           unusedIsNameKey, unusedNameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
 
     lgpd::FetchResult r = fetcher.getToFile("cid-1", "/tmp/wallet.lgx");
 
@@ -764,10 +856,311 @@ LOGOS_TEST(subscribe_subscribes_once) {
     };
 
     StorageFetcher fetcher(nullptr, subscribe, subscribe, unusedCancel,
-                           nullptr, subscribe, nodeRunning, network, shortTimeout, shortTimeout);
+                           nullptr, subscribe, unusedIsNameKey, unusedNameResolve, subscribe,
+                           nodeRunning, network, shortTimeout, shortTimeout);
 
     fetcher.subscribe();
     fetcher.subscribe();
 
-    LOGOS_ASSERT_EQ(subscriptions, 3);
+    LOGOS_ASSERT_EQ(subscriptions, 4);
+}
+
+LOGOS_TEST(getToFile_resolves_a_name_key_then_downloads_its_cid) {
+    std::function<void(const std::string&)> fireDone;
+    std::string downloadedCid;
+    std::string manifestCid;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string& cid, const std::string&) {
+            downloadedCid = cid;
+            fireDone(buildPayload(cid, true));
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [&](std::function<void(const std::string&)> callback) {
+            fireDone = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+
+    std::function<void(const std::string&)> fireManifest;
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [&](std::function<void(const std::string&)> callback) {
+            fireManifest = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string& cid) {
+            manifestCid = cid;
+            fireManifest(LogosMap{{"success", true}, {"cid", cid}}.dump());
+            return std::string();
+        };
+
+    NameResolver resolver;
+
+    // The event fires before the call returns: the fetcher must wait for it
+    // before it sends the command.
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string& nameKey) {
+            resolver.fire(buildResolvePayload(nameKey, "cid-1"));
+            return std::string();
+        };
+
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, nameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.ok);
+    LOGOS_ASSERT_EQ(manifestCid, std::string("cid-1"));
+    LOGOS_ASSERT_EQ(downloadedCid, std::string("cid-1"));
+}
+
+LOGOS_TEST(getToFile_downloads_a_dataset_cid_without_a_resolve) {
+    std::function<void(const std::string&)> fireDone;
+    std::string downloadedCid;
+    int resolves = 0;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string& cid, const std::string&) {
+            downloadedCid = cid;
+            fireDone(buildPayload(cid, true));
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadDone onStorageDownloadDone =
+        [&](std::function<void(const std::string&)> callback) {
+            fireDone = std::move(callback);
+            return StorageFetcher::Unsubscribe([]() {});
+        };
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string&) {
+            ++resolves;
+            return std::string();
+        };
+
+    Manifest manifest;
+    StorageFetcher fetcher(downloadToUrl, onStorageDownloadDone, unusedProgress, unusedCancel,
+                           manifest.fetch(), manifest.subscribe(),
+                           isNameKey, nameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:cid-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.ok);
+    LOGOS_ASSERT_EQ(downloadedCid, std::string("cid-1"));
+    LOGOS_ASSERT_EQ(resolves, 0);
+}
+
+LOGOS_TEST(getToFile_downloads_nothing_when_the_name_key_has_no_record) {
+    bool downloaded = false;
+    bool manifestFetched = false;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    NameResolver resolver;
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string& nameKey) {
+            resolver.fire(buildResolvePayload(nameKey, ""));
+            return std::string();
+        };
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, nameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_FALSE(r.ok);
+    LOGOS_ASSERT_TRUE(r.error.find("no name record for name-1") != std::string::npos);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(getToFile_returns_the_error_of_a_failed_resolve) {
+    bool downloaded = false;
+    bool manifestFetched = false;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    NameResolver resolver;
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string& nameKey) {
+            resolver.fire(buildResolveErrorPayload(nameKey, "invalid signature"));
+            return std::string();
+        };
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, nameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_FALSE(r.ok);
+    LOGOS_ASSERT_TRUE(r.error.find("invalid signature") != std::string::npos);
+    LOGOS_ASSERT_TRUE(r.error.find("name-1") != std::string::npos);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(getToFile_times_out_when_no_peer_resolves_the_name_key) {
+    bool downloaded = false;
+    bool manifestFetched = false;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    NameResolver resolver;
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, unusedNameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_FALSE(r.ok);
+    LOGOS_ASSERT_TRUE(r.error.find("no peer replied for name-1") != std::string::npos);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(getToFile_downloads_nothing_when_the_key_cannot_be_checked) {
+    bool downloaded = false;
+    bool manifestFetched = false;
+    int resolves = 0;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    StorageFetcher::IsNameKey failingIsNameKey =
+        [](const std::string&, bool&) {
+            return std::string("malformed key");
+        };
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string&) {
+            ++resolves;
+            return std::string();
+        };
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           failingIsNameKey, nameResolve, unusedNameResolveDone,
+                           nodeRunning, network, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_FALSE(r.ok);
+    LOGOS_ASSERT_TRUE(r.error.find("name-1") != std::string::npos);
+    LOGOS_ASSERT_EQ(resolves, 0);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
+}
+
+LOGOS_TEST(cancelPendingDownloads_fails_a_resolve_in_progress) {
+    StorageFetcher* fetcherPtr = nullptr;
+    bool downloaded = false;
+    bool manifestFetched = false;
+
+    StorageFetcher::DownloadToUrl downloadToUrl =
+        [&](const std::string&, const std::string&) {
+            downloaded = true;
+            return std::string();
+        };
+
+    StorageFetcher::DownloadManifest downloadManifest =
+        [&](const std::string&) {
+            manifestFetched = true;
+            return std::string();
+        };
+
+    StorageFetcher::OnStorageDownloadManifestDone onManifestDone =
+        [](std::function<void(const std::string&)>) { return StorageFetcher::Unsubscribe([]() {}); };
+
+    StorageFetcher::NameResolve nameResolve =
+        [&](const std::string&) {
+            fetcherPtr->cancelPendingDownloads();
+            return std::string();
+        };
+
+    NameResolver resolver;
+
+    StorageFetcher fetcher(downloadToUrl, unusedDone, unusedProgress, unusedCancel,
+                           downloadManifest, onManifestDone,
+                           isNameKey, nameResolve, resolver.subscribe(),
+                           nodeRunning, network, shortTimeout, shortTimeout, shortTimeout);
+    fetcher.subscribe();
+    fetcherPtr = &fetcher;
+
+    lgpd::FetchResult r = fetcher.getToFile("logos:logos.test:name-1", "/tmp/wallet.lgx");
+
+    LOGOS_ASSERT_TRUE(r.error.find("unloading") != std::string::npos);
+    LOGOS_ASSERT_FALSE(manifestFetched);
+    LOGOS_ASSERT_FALSE(downloaded);
 }

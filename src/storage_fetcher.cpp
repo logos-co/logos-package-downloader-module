@@ -18,23 +18,31 @@ StorageFetcher::StorageFetcher(DownloadToUrl downloadToUrl, OnStorageDownloadDon
                                OnStorageDownloadProgress onStorageDownloadProgress,
                                DownloadCancel downloadCancel, DownloadManifest downloadManifest,
                                OnStorageDownloadManifestDone onStorageDownloadManifestDone,
+                               IsNameKey isNameKey,
+                               NameResolve nameResolve,
+                               OnStorageNameResolveDone onStorageNameResolveDone,
                                NodeRunning nodeRunning,
                                Network network,
                                std::chrono::milliseconds stallTimeout,
                                std::chrono::milliseconds manifestTimeout,
+                               std::chrono::milliseconds resolveTimeout,
                                AwaitNode awaitNode,
                                std::chrono::milliseconds startTimeout)
     : m_downloadToUrl(std::move(downloadToUrl))
     , m_downloadCancel(std::move(downloadCancel))
     , m_downloadManifest(std::move(downloadManifest))
+    , m_isNameKey(std::move(isNameKey))
+    , m_nameResolve(std::move(nameResolve))
     , m_onStorageDownloadDone(std::move(onStorageDownloadDone))
     , m_onStorageDownloadProgress(std::move(onStorageDownloadProgress))
     , m_onStorageDownloadManifestDone(std::move(onStorageDownloadManifestDone))
+    , m_onStorageNameResolveDone(std::move(onStorageNameResolveDone))
     , m_nodeRunning(std::move(nodeRunning))
     , m_network(std::move(network))
     , m_awaitNode(std::move(awaitNode))
     , m_stallTimeout(stallTimeout)
     , m_manifestTimeout(manifestTimeout)
+    , m_resolveTimeout(resolveTimeout)
     , m_startTimeout(startTimeout)
 {
 }
@@ -43,7 +51,8 @@ StorageFetcher::~StorageFetcher() {
     std::vector<Unsubscribe> unsubscribes;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        unsubscribes = {m_unsubscribeDone, m_unsubscribeProgress, m_unsubscribeManifest};
+        unsubscribes = {m_unsubscribeDone, m_unsubscribeProgress, m_unsubscribeManifest,
+                        m_unsubscribeNameResolve};
     }
 
     // Outside the lock: a cancel waits for a callback in flight, which takes it.
@@ -78,11 +87,16 @@ void StorageFetcher::subscribe() {
         onManifestDone(payload);
     });
 
+    Unsubscribe nameResolve = m_onStorageNameResolveDone([this](const std::string& payload) {
+        onNameResolveDone(payload);
+    });
+
     std::lock_guard<std::mutex> lock(m_mutex);
 
     m_unsubscribeDone = std::move(done);
     m_unsubscribeProgress = std::move(progress);
     m_unsubscribeManifest = std::move(manifest);
+    m_unsubscribeNameResolve = std::move(nameResolve);
 }
 
 void StorageFetcher::cancelPendingDownloads(const std::string& reason) {
@@ -98,8 +112,13 @@ void StorageFetcher::cancelPendingDownloads(const std::string& reason) {
         manifest.set_value({false, reason});
     }
 
+    for (auto& [nameKey, resolve] : m_pendingResolves) {
+        resolve.set_value({{false, reason}, {}});
+    }
+
     m_pending.clear();
     m_pendingManifests.clear();
+    m_pendingResolves.clear();
 }
 
 lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
@@ -145,6 +164,57 @@ lgpd::FetchResult StorageFetcher::fetchManifest(const std::string& cid) {
     }
 
     return done.get();
+}
+
+lgpd::FetchResult StorageFetcher::resolveName(const std::string& nameKey, std::string& cid) {
+    std::future<Resolved> done;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (!m_unsubscribeNameResolve) {
+            return {false, "not subscribed to storage_module's storageNameResolveDone event"};
+        }
+
+        if (!m_cancelled.empty()) {
+            return {false, m_cancelled};
+        }
+
+        if (m_pendingResolves.count(nameKey) > 0) {
+            return {false, "a resolve of " + nameKey + " is already in progress"};
+        }
+
+        done = m_pendingResolves[nameKey].get_future();
+    }
+
+    if (std::string err = m_nameResolve(nameKey); !err.empty()) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_pendingResolves.erase(nameKey);
+        return {false, "cannot resolve " + nameKey + ": " + err};
+    }
+
+    if (done.wait_for(m_resolveTimeout) != std::future_status::ready) {
+        bool dropped = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+
+            // The event can arrive while we wait for the lock.
+            dropped = m_pendingResolves.erase(nameKey) > 0;
+        }
+
+        if (dropped) {
+            return {false, "no peer replied for " + nameKey};
+        }
+    }
+
+    Resolved resolved = done.get();
+
+    if (!resolved.result.ok) {
+        return resolved.result;
+    }
+
+    cid = resolved.cid;
+
+    return {true, {}};
 }
 
 lgpd::FetchResult StorageFetcher::get(const std::string& cid, std::string& out) {
@@ -226,8 +296,8 @@ lgpd::FetchResult StorageFetcher::getToFile(const std::string& url, const std::s
 
 lgpd::FetchResult StorageFetcher::fetchToFile(const std::string& url, const std::string& path,
                                               const lgpd::ProgressFn& onProgress) {
-    // url is logos:<network>:<CID>, the network was checked by canHandle.
-    const std::string cid = url.substr(url.rfind(':') + 1);
+    // url is logos:<network>:<key>, the network was checked by canHandle.
+    const std::string key = url.substr(url.rfind(':') + 1);
 
     if (!m_nodeRunning()) {
         return {false, "the storage node is not running"};
@@ -239,6 +309,24 @@ lgpd::FetchResult StorageFetcher::fetchToFile(const std::string& url, const std:
         if (!m_unsubscribeDone) {
             return {false, "not subscribed to storage_module's storageDownloadDone event"};
         }
+    }
+
+    // The key is a dataset CID, or a name key that points to one.
+    std::string cid = key;
+    bool nameKey = false;
+
+    if (std::string err = m_isNameKey(key, nameKey); !err.empty()) {
+        return {false, "cannot check " + key + ": " + err};
+    }
+
+    if (nameKey) {
+        if (lgpd::FetchResult resolved = resolveName(key, cid); !resolved.ok) {
+            return resolved;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
 
         if (m_pending.count(cid) > 0) {
             return {false, "a download of " + cid + " is already in progress"};
@@ -405,6 +493,53 @@ void StorageFetcher::onManifestDone(const std::string& payload) {
 
     it->second.set_value(std::move(result));
     m_pendingManifests.erase(it);
+}
+
+void StorageFetcher::onNameResolveDone(const std::string& payload) {
+    std::string nameKey;
+    Resolved resolved;
+
+    try {
+        const LogosMap event = LogosMap::parse(payload);
+
+        if (!event.is_object()) {
+            return;
+        }
+
+        nameKey = event.value("nameKey", "");
+
+        if (!event.value("success", false)) {
+            resolved.result = {false, "cannot resolve " + nameKey + ": " +
+                                      event.value("error", "storage name resolve failed")};
+        } else {
+            // Success with an empty cid: the DHT has no name record.
+            resolved.cid = event.value("cid", "");
+
+            if (resolved.cid.empty()) {
+                resolved.result = {false, "no name record for " + nameKey};
+            } else {
+                resolved.result = {true, {}};
+            }
+        }
+    } catch (...) {
+        return;
+    }
+
+    if (nameKey.empty()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    // The event of a resolve that timed out can answer a later resolve of the
+    // same key, as for manifests: its cid is still valid.
+    auto it = m_pendingResolves.find(nameKey);
+    if (it == m_pendingResolves.end()) {
+        return;
+    }
+
+    it->second.set_value(std::move(resolved));
+    m_pendingResolves.erase(it);
 }
 
 void StorageFetcher::onDownloadProgress(const std::string& payload) {
