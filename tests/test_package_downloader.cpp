@@ -565,7 +565,7 @@ LOGOS_TEST(storage_events_are_subscribed_on_the_first_ready) {
     fireStorageReady();
 
     LOGOS_ASSERT_EQ(beforeReady, 0);
-    LOGOS_ASSERT_EQ(fakeFetcherSubscriptions, 3);
+    LOGOS_ASSERT_EQ(fakeFetcherSubscriptions, 4);
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────

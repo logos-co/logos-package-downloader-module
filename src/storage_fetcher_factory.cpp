@@ -70,6 +70,35 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules,
             return unsubscribeOf(modules.storage_module.onStorageDownloadManifestDone(std::move(callback)));
         };
 
+    StorageFetcher::IsNameKey isNameKey =
+        [&modules](const std::string& key, bool& nameKey) {
+            const StdLogosResult r = modules.storage_module.isNameKey(key);
+
+            if (!r.success) {
+                return r.error;
+            }
+
+            if (!r.value.is_boolean()) {
+                return std::string("the storage module did not say if the key is a name key");
+            }
+
+            nameKey = r.value.get<bool>();
+
+            return std::string();
+        };
+
+    StorageFetcher::NameResolve nameResolve =
+        [&modules](const std::string& nameKey) {
+            const StdLogosResult r = modules.storage_module.nameResolve(nameKey);
+
+            return r.success ? std::string() : r.error;
+        };
+
+    StorageFetcher::OnStorageNameResolveDone onStorageNameResolveDone =
+        [&modules](std::function<void(const std::string&)> callback) {
+            return unsubscribeOf(modules.storage_module.onStorageNameResolveDone(std::move(callback)));
+        };
+
     StorageFetcher::NodeRunning nodeRunning =
         [&modules]() {
             return modules.storage_module.isRunning();
@@ -83,9 +112,10 @@ std::shared_ptr<StorageFetcher> makeStorageFetcher(LogosModules& modules,
     return std::make_shared<StorageFetcher>(downloadToUrl, onStorageDownloadDone,
                                             onStorageDownloadProgress, downloadCancel,
                                             downloadManifest, onStorageDownloadManifestDone,
+                                            isNameKey, nameResolve, onStorageNameResolveDone,
                                             nodeRunning, network,
                                             std::chrono::seconds(60), std::chrono::seconds(60),
-                                            std::move(awaitNode));
+                                            std::chrono::seconds(60), std::move(awaitNode));
 }
 
 std::string makeNetwork(LogosModules& modules) {

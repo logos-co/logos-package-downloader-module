@@ -24,6 +24,12 @@ public:
     using DownloadCancel = std::function<std::string(const std::string& cid)>;
     using DownloadManifest = std::function<std::string(const std::string& cid)>;
     using OnStorageDownloadManifestDone = std::function<Unsubscribe(std::function<void(const std::string& payload)>)>;
+
+    // Returns "" and sets nameKey, or returns why the key cannot be checked.
+    // nameKey is true for a name key, false for a dataset CID.
+    using IsNameKey = std::function<std::string(const std::string& key, bool& nameKey)>;
+    using NameResolve = std::function<std::string(const std::string& nameKey)>;
+    using OnStorageNameResolveDone = std::function<Unsubscribe(std::function<void(const std::string& payload)>)>;
     using NodeRunning = std::function<bool()>;
     using Network = std::function<std::string()>;
 
@@ -32,6 +38,7 @@ public:
     using AwaitNode = std::function<std::string(std::chrono::milliseconds timeout)>;
 
     // Default timeout for the manifest: 60 seconds.
+    // Default timeout for a name key resolve: 60 seconds.
     // The transfer has no total limit: it gives up
     // after 60 seconds without a progress event.
     // A node that is not running gets 90 seconds to start.
@@ -42,10 +49,14 @@ public:
         DownloadCancel downloadCancel,
         DownloadManifest downloadManifest,
         OnStorageDownloadManifestDone onStorageDownloadManifestDone,
+        IsNameKey isNameKey,
+        NameResolve nameResolve,
+        OnStorageNameResolveDone onStorageNameResolveDone,
         NodeRunning nodeRunning,
         Network network,
         std::chrono::milliseconds stallTimeout = std::chrono::seconds(60),
         std::chrono::milliseconds manifestTimeout = std::chrono::seconds(60),
+        std::chrono::milliseconds resolveTimeout = std::chrono::seconds(60),
         AwaitNode awaitNode = {},
         std::chrono::milliseconds startTimeout = std::chrono::seconds(90));
 
@@ -71,12 +82,21 @@ public:
 
 private:
     lgpd::FetchResult fetchManifest(const std::string& cid);
+
+    // On success, cid is the dataset CID that the name record gives.
+    lgpd::FetchResult resolveName(const std::string& nameKey, std::string& cid);
     lgpd::FetchResult fetchToFile(const std::string& url, const std::string& path,
                                   const lgpd::ProgressFn& onProgress);
 
     void onDownloadDone(const std::string& payload);
     void onDownloadProgress(const std::string& payload);
     void onManifestDone(const std::string& payload);
+    void onNameResolveDone(const std::string& payload);
+
+    struct Resolved {
+        lgpd::FetchResult result;
+        std::string cid;
+    };
 
     struct Pending {
         std::promise<lgpd::FetchResult> result;
@@ -88,16 +108,20 @@ private:
     DownloadToUrl m_downloadToUrl;
     DownloadCancel m_downloadCancel;
     DownloadManifest m_downloadManifest;
+    IsNameKey m_isNameKey;
+    NameResolve m_nameResolve;
 
     OnStorageDownloadDone m_onStorageDownloadDone;
     OnStorageDownloadProgress m_onStorageDownloadProgress;
     OnStorageDownloadManifestDone m_onStorageDownloadManifestDone;
+    OnStorageNameResolveDone m_onStorageNameResolveDone;
     NodeRunning m_nodeRunning;
     Network m_network;
     AwaitNode m_awaitNode;
 
     std::chrono::milliseconds m_stallTimeout;
     std::chrono::milliseconds m_manifestTimeout;
+    std::chrono::milliseconds m_resolveTimeout;
     std::chrono::milliseconds m_startTimeout;
 
     std::mutex m_mutex;
@@ -107,9 +131,11 @@ private:
     Unsubscribe m_unsubscribeDone;
     Unsubscribe m_unsubscribeProgress;
     Unsubscribe m_unsubscribeManifest;
+    Unsubscribe m_unsubscribeNameResolve;
 
     // Set by cancelPendingDownloads(): the error of every download from then on.
     std::string m_cancelled;
     std::map<std::string, Pending> m_pending;
     std::map<std::string, std::promise<lgpd::FetchResult>> m_pendingManifests;
+    std::map<std::string, std::promise<Resolved>> m_pendingResolves;
 };
